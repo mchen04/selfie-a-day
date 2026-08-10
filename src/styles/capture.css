@@ -1,0 +1,958 @@
+/* ---------------------------------------------------------------------------
+   Capture frame, timeline, settings and onboarding.
+   --------------------------------------------------------------------------- */
+
+/* --- The frame ------------------------------------------------------------ */
+
+.capture {
+  justify-content: space-between;
+}
+
+.capture__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 0 max(var(--safe-left), 0px) 0 max(var(--safe-right), 0px);
+}
+
+/* Every layer inside is the same box with the same fit, which is what keeps the
+   ghost, the preview and the saved photo in one coordinate space.
+
+   The frame must stay exactly 3:4 at every viewport size, because the moment it
+   is not, the live preview and the ghost get *different* cover-crops and the
+   alignment aid starts lying. `width: 100%; max-height: 100%` looks like it
+   does that and does not: on a stage shorter than 4/3 of its width the height
+   clamps and the ratio silently becomes 0.83.
+
+   Absolute inset:0 with auto margins and no explicit width or height is the one
+   formulation that holds in all three cases — stage taller, shorter, or wider
+   than the frame — measured rather than assumed. */
+.frame {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  aspect-ratio: var(--frame-aspect);
+  max-width: 100%;
+  max-height: 100%;
+  background: #000;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.frame__video,
+.frame__ghost,
+.frame__still {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* These two rules are the runtime half of the mirroring contract, and they are
+   deliberately NOT on the shared .frame container. Hoisting them there is the
+   obvious tidy-up and it would flip the ghost together with the preview, so a
+   photo stored in the same space as the preview would appear mirrored relative
+   to it — the exact misalignment this app exists to prevent. The preview and
+   the ghost are flipped independently, from separate data attributes. */
+.frame__video[data-mirrored='true'] {
+  transform: scaleX(-1);
+}
+
+.frame__ghost {
+  pointer-events: none;
+  /* `screen` keeps the ghost readable against a dark preview without washing
+     out the live face the way plain alpha does at usable strengths. */
+  mix-blend-mode: screen;
+  transition: opacity 120ms var(--ease);
+}
+
+.frame__ghost[data-flipped='true'] {
+  transform: scaleX(-1);
+}
+
+.frame__grid {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.frame__grid-lines {
+  stroke: rgb(255 255 255 / 42%);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  fill: none;
+}
+
+.frame__grid-marks {
+  stroke: rgb(94 224 184 / 65%);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  fill: none;
+}
+
+.frame__flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  animation: flash 220ms var(--ease) forwards;
+  pointer-events: none;
+  /* Above the tap layer, the guides and any status overlay. */
+  z-index: 4;
+}
+
+@keyframes flash {
+  from {
+    opacity: 0.85;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.frame__hint {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 55%);
+  backdrop-filter: blur(8px);
+  color: rgb(255 255 255 / 88%);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.frame__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  background: rgb(8 8 10 / 78%);
+  backdrop-filter: blur(6px);
+  color: var(--text);
+}
+
+.frame__overlay--quiet {
+  background: rgb(8 8 10 / 55%);
+}
+
+.frame__overlay-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.frame__overlay-body {
+  margin: 0;
+  max-width: 30ch;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.frame__overlay-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.frame__overlay-foot {
+  margin: 2px 0 0;
+}
+
+.frame--static {
+  border-radius: var(--radius);
+}
+
+/* --- Controls ------------------------------------------------------------- */
+
+.capture__controls {
+  padding: 8px calc(var(--safe-right) + 14px) calc(var(--safe-bottom) + 10px)
+    calc(var(--safe-left) + 14px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: none;
+}
+
+.ghostbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--tap);
+}
+
+.ghostbar__slider {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.ghostbar__slider input,
+.row__control input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+  height: var(--tap);
+  cursor: pointer;
+}
+
+.ghostbar__slider input:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Apple's minimum hit region is 44x44 pt. These are thumb targets on a camera
+   screen, so they meet the floor rather than merely look tidy. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--tap);
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex: none;
+  transition:
+    color 140ms var(--ease),
+    border-color 140ms var(--ease),
+    background 140ms var(--ease);
+}
+
+.chip[data-active='true'] {
+  color: var(--accent);
+  border-color: rgb(94 224 184 / 40%);
+  background: rgb(94 224 184 / 10%);
+}
+
+.chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.capture__actions {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+.capture__slot {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+}
+
+.capture__slot--right {
+  justify-content: flex-end;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.pill--done {
+  color: var(--accent);
+  background: rgb(94 224 184 / 12%);
+}
+
+/* 76px keeps the shutter comfortably past the 44px minimum target even when a
+   thumb lands off-centre, which is the normal case one-handed. */
+.shutter {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.shutter__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid rgb(255 255 255 / 85%);
+  transition: transform 140ms var(--ease);
+}
+
+.shutter__core {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: #fff;
+  color: #111;
+  display: grid;
+  place-items: center;
+  transition:
+    transform 140ms var(--ease),
+    background 140ms var(--ease);
+}
+
+.shutter:active:not(:disabled) .shutter__core {
+  transform: scale(0.88);
+  background: var(--accent);
+}
+
+.shutter:disabled {
+  cursor: not-allowed;
+}
+
+.shutter:disabled .shutter__core {
+  background: rgb(255 255 255 / 28%);
+}
+
+.shutter:disabled .shutter__ring {
+  border-color: rgb(255 255 255 / 30%);
+}
+
+.shutter[data-busy='true'] .shutter__core {
+  transform: scale(0.86);
+}
+
+/* --- Banners and toasts ---------------------------------------------------- */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 14px 0;
+  padding: 4px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.banner--error {
+  color: var(--danger);
+  border-color: rgb(255 122 112 / 30%);
+  background: rgb(255 122 112 / 8%);
+}
+
+.banner--warn {
+  color: var(--warn);
+  border-color: rgb(255 196 107 / 30%);
+  background: rgb(255 196 107 / 8%);
+}
+
+.banner--update {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: calc(var(--safe-bottom) + 14px);
+  justify-content: space-between;
+  z-index: 20;
+  background: var(--surface-2);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
+}
+
+.banner--update .btn {
+  min-height: var(--tap);
+  padding: 0 14px;
+  font-size: 13.5px;
+}
+
+/* Anchored to the top. The bottom of a camera screen belongs to the thumb, and
+   a toast there covers the very controls the user just reached for. */
+.toast-layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--safe-top) + 64px);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 30;
+}
+
+.toast {
+  max-width: calc(100% - 32px);
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: rgb(30 30 37 / 96%);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 45%);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: center;
+  animation: toast-in 200ms var(--ease);
+}
+
+.toast[data-tone='success'] {
+  color: var(--accent);
+}
+
+.toast[data-tone='error'] {
+  color: var(--danger);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgb(255 255 255 / 22%);
+  border-top-color: var(--accent);
+  animation: spin 700ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.boot {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+/* --- Timeline ------------------------------------------------------------- */
+
+.month {
+  padding: 4px calc(var(--safe-right) + 14px) 18px calc(var(--safe-left) + 14px);
+}
+
+.month__label {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 0 10px;
+  padding: 6px 0;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: linear-gradient(var(--bg) 70%, transparent);
+}
+
+.grid {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+@media (min-width: 400px) {
+  .grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.cell {
+  position: relative;
+  display: block;
+  width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.cell__media {
+  aspect-ratio: var(--frame-aspect);
+  background: var(--surface-2);
+}
+
+.cell__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cell__placeholder {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(115deg, var(--surface-2), var(--surface-3), var(--surface-2));
+}
+
+.cell__day {
+  position: absolute;
+  left: 6px;
+  bottom: 5px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 4px rgb(0 0 0 / 80%);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  padding: 56px 28px;
+  color: var(--muted);
+}
+
+.empty__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.empty__body {
+  margin: 0;
+  max-width: 30ch;
+  font-size: 14px;
+}
+
+/* --- Photo ---------------------------------------------------------------- */
+
+.photo__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 8px calc(var(--safe-right) + 14px) 8px calc(var(--safe-left) + 14px);
+}
+
+.photo__nav {
+  display: flex;
+  gap: 10px;
+  padding: 4px calc(var(--safe-right) + 14px) calc(var(--safe-bottom) + 16px)
+    calc(var(--safe-left) + 14px);
+}
+
+.photo__nav .btn {
+  flex: 1;
+}
+
+/* --- Settings ------------------------------------------------------------- */
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px calc(var(--safe-right) + 14px) calc(var(--safe-bottom) + 28px)
+    calc(var(--safe-left) + 14px);
+}
+
+.section__title {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.row__label {
+  font-size: 15px;
+  font-weight: 550;
+}
+
+.row__hint {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.row__control {
+  flex: none;
+  min-width: 116px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.row:has(.segmented) {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.row:has(.segmented) .row__control {
+  min-width: 0;
+}
+
+.segmented {
+  display: flex;
+  width: 100%;
+  padding: 3px;
+  gap: 3px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.segmented__item {
+  flex: 1;
+  min-height: var(--tap);
+  border-radius: 9px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--muted);
+  transition:
+    background 140ms var(--ease),
+    color 140ms var(--ease);
+}
+
+.segmented__item[data-active='true'] {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+/* The visible track stays 52x32; the control itself is 44 tall so the hit
+   region clears Apple's floor without a chunky-looking switch. */
+.switch {
+  position: relative;
+  width: 52px;
+  height: var(--tap);
+  border-radius: 999px;
+  background: transparent;
+  transition: background 160ms var(--ease);
+  flex: none;
+}
+
+.switch::before {
+  content: '';
+  position: absolute;
+  inset: 6px 0;
+  border-radius: 999px;
+  background: var(--surface-3);
+  transition: background 160ms var(--ease);
+}
+
+.switch[aria-checked='true']::before {
+  background: var(--accent);
+}
+
+.switch__knob {
+  position: absolute;
+  top: 9px;
+  left: 3px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 160ms var(--ease);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 40%);
+}
+
+.switch[aria-checked='true'] .switch__knob {
+  transform: translateX(20px);
+}
+
+.facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+}
+
+.facts > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.facts dt {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.facts dd {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.iconbtn[data-danger='true'] {
+  color: var(--danger);
+  background: rgb(255 122 112 / 12%);
+}
+
+/* --- Onboarding ----------------------------------------------------------- */
+
+.onboarding__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: calc(var(--safe-top) + 40px) calc(var(--safe-right) + 26px) 20px
+    calc(var(--safe-left) + 26px);
+}
+
+/* flex: none matters. As a column flex item this shrinks along the main axis
+   when the page is tight, which squashed the circular rings into ellipses. */
+.onboarding__mark {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  flex: none;
+  margin-bottom: 6px;
+}
+
+.onboarding__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid var(--text);
+}
+
+.onboarding__ring--ghost {
+  border-color: rgb(94 224 184 / 55%);
+  transform: translate(-11px, -9px);
+}
+
+.onboarding__dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 13px;
+  height: 13px;
+  margin: -6.5px 0 0 -6.5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.onboarding__title {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.12;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.onboarding__lede {
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  max-width: 34ch;
+}
+
+.onboarding__points {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.onboarding__points li {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  color: var(--accent);
+}
+
+.onboarding__points li > svg {
+  flex: none;
+}
+
+.onboarding__points div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text);
+}
+
+.onboarding__points strong {
+  font-size: 14.5px;
+  font-weight: 650;
+}
+
+.onboarding__points span {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.onboarding__install {
+  margin: 8px 0 0;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px dashed var(--line-strong);
+}
+
+.onboarding__foot {
+  flex: none;
+  padding: 12px calc(var(--safe-right) + 26px) calc(var(--safe-bottom) + 22px)
+    calc(var(--safe-left) + 26px);
+}
+
+.onboarding__foot-note {
+  margin: 8px 0 0;
+  text-align: center;
+}
+
+/* --- Frame as shutter ------------------------------------------------------ */
+
+/* Sits above the preview and the guides but below any status overlay, so the
+   "Try again" / "Use a photo" buttons stay clickable. */
+.frame__tap {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: none;
+  cursor: pointer;
+}
+
+
+/* --- Backup nudge ---------------------------------------------------------- */
+
+.banner--nudge {
+  color: var(--warn);
+  border-color: rgb(255 196 107 / 28%);
+  background: rgb(255 196 107 / 7%);
+  gap: 8px;
+}
+
+/* Two lines at most. The live preview is the reason the app exists, so an
+   advisory must stay small — but a warning truncated mid-sentence creates
+   anxiety without conveying the risk, which is worse than not showing it. */
+.banner--nudge span {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  display: -webkit-box;
+  /* Three lines so the sentence still completes on a 320px-wide phone. */
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.35;
+}
+
+
+.banner__link {
+  min-height: var(--tap);
+  min-width: var(--tap);
+  padding: 0 10px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--warn);
+  flex: none;
+}
+
+.banner__link--icon {
+  color: var(--muted);
+  padding: 0;
+  width: var(--tap);
+  display: grid;
+  place-items: center;
+}
+
+/* --- Timelapse playback ----------------------------------------------------- */
+
+.playback {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.playback__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 0 calc(var(--safe-right) + 14px) 0 calc(var(--safe-left) + 14px);
+}
+
+.playback__controls {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px calc(var(--safe-right) + 14px) calc(var(--safe-bottom) + 18px)
+    calc(var(--safe-left) + 14px);
+}
+
+.playback__controls input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+  height: var(--tap);
+  cursor: pointer;
+}
+
+.playback__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.playback__row .btn {
+  flex: none;
+  min-width: 116px;
+}
+
+.segmented--compact {
+  flex: 1;
+}
+
+.segmented--compact .segmented__item {
+  min-height: var(--tap);
+  font-size: 12.5px;
+}
+
+.card--inset {
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.problems {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--warn);
+}

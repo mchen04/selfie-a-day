@@ -1,0 +1,328 @@
+/* ---------------------------------------------------------------------------
+   Selfie a Day — design tokens and app shell.
+
+   The app is a camera first, so it is dark by default rather than by preference:
+   a bright UI around a live preview washes out the very face the user is trying
+   to align. Chrome lives strictly outside the capture frame so that what is
+   inside the frame is unambiguously what gets saved.
+   --------------------------------------------------------------------------- */
+
+:root {
+  --bg: #08080a;
+  --surface: #141418;
+  --surface-2: #1e1e25;
+  --surface-3: #2a2a33;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.18);
+
+  --text: #f2f2f5;
+  --muted: #a0a0ac;
+  --faint: #6c6c78;
+
+  --accent: #5ee0b8;
+  --accent-dim: #2f9d7d;
+  --accent-ink: #052019;
+  --danger: #ff7a70;
+  --warn: #ffc46b;
+
+  --radius: 14px;
+  --radius-lg: 22px;
+  --tap: 44px;
+
+  /* Fallback only. src/main.tsx overwrites this from FRAME_ASPECT in
+     src/core/geometry.ts, which is the single source of truth. */
+  --frame-aspect: 0.75;
+  --shell-max: 460px;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+* {
+  margin: 0;
+}
+
+html,
+body {
+  height: 100%;
+  /* Suppress pull-to-refresh and rubber-banding. iOS honours this on <html>
+     more reliably than on <body>, so both carry it. */
+  overscroll-behavior: none;
+  /* Stop Safari inflating overlay labels in landscape. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* A camera app should not rubber-band; the frame must feel fixed in place. */
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* A tap-heavy camera UI should never pop a callout or select its own labels.
+   Text the user might want to copy (settings prose, errors) opts back in. */
+button,
+.frame,
+.chip,
+.shutter,
+.cell,
+.segmented,
+.switch,
+.topbar {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.row__hint,
+.tiny,
+.frame__overlay-body,
+[data-testid='privacy-statement'] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+#root {
+  height: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  /* Removes the 300ms double-tap-zoom delay without disabling pinch zoom. */
+  touch-action: manipulation;
+}
+
+:where(button, a, input, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+img,
+video,
+canvas {
+  display: block;
+  max-width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* --- App shell ------------------------------------------------------------ */
+
+/* On a desktop the app holds a phone-shaped column instead of stretching a
+   one-handed layout across 1400px, which would put every control out of reach
+   of the thumb it was designed for. */
+.shell {
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  background: var(--bg);
+}
+
+.shell__inner {
+  width: 100%;
+  max-width: var(--shell-max);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: var(--bg);
+}
+
+@media (min-width: 620px) and (min-height: 640px) {
+  .shell {
+    padding: 24px;
+    background: radial-gradient(120% 90% at 50% 0%, #141419 0%, #08080a 62%);
+  }
+  .shell__inner {
+    border: 1px solid var(--line);
+    border-radius: 28px;
+    overflow: hidden;
+    box-shadow: 0 30px 80px rgb(0 0 0 / 55%);
+    height: min(100%, 880px);
+    margin: auto;
+  }
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.screen__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* --- Bars ----------------------------------------------------------------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(var(--safe-top) + 10px) calc(var(--safe-right) + 14px) 10px
+    calc(var(--safe-left) + 14px);
+  min-height: calc(var(--safe-top) + 52px);
+}
+
+.topbar__title {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar__sub {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+
+.iconbtn {
+  width: var(--tap);
+  height: var(--tap);
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--text);
+  flex: none;
+  transition: background 140ms var(--ease);
+}
+
+.iconbtn:hover {
+  background: var(--surface-2);
+}
+
+.iconbtn:active {
+  background: var(--surface-3);
+}
+
+/* --- Buttons -------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--tap);
+  padding: 0 18px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  border: 1px solid var(--line);
+  transition:
+    background 140ms var(--ease),
+    transform 140ms var(--ease);
+}
+
+.btn:active {
+  transform: scale(0.985);
+}
+
+.btn--primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+
+.btn--danger {
+  color: var(--danger);
+  border-color: rgb(255 122 112 / 30%);
+}
+
+.btn--wide {
+  width: 100%;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* --- Generic surfaces ----------------------------------------------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.tiny {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
