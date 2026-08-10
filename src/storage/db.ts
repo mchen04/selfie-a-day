@@ -1,27 +1,34 @@
 /**
  * IndexedDB access and the schema migration ladder.
  *
- * Storage layout — three stores, split by read cost rather than by entity:
+ * Storage layout — stores split by read cost rather than by entity:
  *
  *   photos   metadata only, ~150 bytes each. The timeline reads all of it.
  *   thumbs   small previews, read lazily per visible cell.
  *   masters  full-size bytes, read only for a single photo, the ghost, or export.
+ *   albums   tiny records that define independent daily journeys.
  *
  * A capture writes all three inside one transaction, so a photo is either fully
  * present or fully absent; there is no state where the timeline shows a cell
  * that cannot be opened.
  */
 
+import { defaultAlbum } from '../core/albums.ts'
+import { DEFAULT_ALBUM_ID, SCHEMA_VERSION, type PhotoMeta } from '../core/types.ts'
+
 export const DB_NAME = 'selfie-a-day'
-export const DB_VERSION = 1
+export const DB_VERSION = 2
 
 export const STORE_PHOTOS = 'photos'
 export const STORE_THUMBS = 'thumbs'
 export const STORE_MASTERS = 'masters'
 export const STORE_META = 'meta'
+export const STORE_ALBUMS = 'albums'
 
 export const INDEX_DAY = 'by_day'
 export const INDEX_CAPTURED_AT = 'by_capturedAt'
+export const INDEX_ALBUM_DAY = 'by_album_day'
+export const INDEX_ALBUM_CREATED_AT = 'by_album_createdAt'
 
 /**
  * Migration `i` upgrades a database at version `i` to version `i + 1`.
@@ -43,6 +50,30 @@ const MIGRATIONS: readonly Migration[] = [
     db.createObjectStore(STORE_THUMBS, { keyPath: 'id' })
     db.createObjectStore(STORE_MASTERS, { keyPath: 'id' })
     db.createObjectStore(STORE_META)
+  },
+  // 1 -> 2: split the original single timeline into a default album.
+  (db, tx) => {
+    const albums = db.createObjectStore(STORE_ALBUMS, { keyPath: 'id' })
+    albums.createIndex(INDEX_ALBUM_CREATED_AT, 'createdAt', { unique: false })
+    albums.put(defaultAlbum())
+
+    const photos = tx.objectStore(STORE_PHOTOS)
+    photos.createIndex(INDEX_ALBUM_DAY, ['albumId', 'dayKey'], { unique: false })
+
+    const request = photos.openCursor()
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) return
+      const previous = cursor.value as Partial<PhotoMeta>
+      cursor.update({
+        ...previous,
+        albumId: DEFAULT_ALBUM_ID,
+        timeZone: null,
+        deletedAt: null,
+        schema: SCHEMA_VERSION,
+      })
+      cursor.continue()
+    }
   },
 ]
 

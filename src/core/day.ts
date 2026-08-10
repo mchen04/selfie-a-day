@@ -11,11 +11,75 @@
 /** `YYYY-MM-DD` in local time. Sorts lexicographically, which we rely on. */
 export type DayKey = string
 
-export function dayKeyOf(date: Date = new Date()): DayKey {
+interface CalendarParts {
+  year: number
+  month: number
+  day: number
+  hour: number
+  minute: number
+  second: number
+}
+
+function partsInTimeZone(date: Date, timeZone: string): CalendarParts {
+  const parts = new Intl.DateTimeFormat('en-US-u-ca-gregory-nu-latn', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date)
+  const value = (type: Intl.DateTimeFormatPartTypes): number =>
+    Number(parts.find((part) => part.type === type)?.value)
+  return {
+    year: value('year'),
+    month: value('month'),
+    day: value('day'),
+    hour: value('hour'),
+    minute: value('minute'),
+    second: value('second'),
+  }
+}
+
+export function resolvedTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+}
+
+export function isValidTimeZone(value: unknown): boolean {
+  if (typeof value !== 'string' || value.length === 0) return false
+  try {
+    new Intl.DateTimeFormat(undefined, { timeZone: value }).format()
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function dayKeyOf(date: Date = new Date(), timeZone?: string): DayKey {
+  if (timeZone) {
+    const { year, month, day } = partsInTimeZone(date, timeZone)
+    return `${year}-${`${month}`.padStart(2, '0')}-${`${day}`.padStart(2, '0')}`
+  }
   const y = date.getFullYear()
   const m = `${date.getMonth() + 1}`.padStart(2, '0')
   const d = `${date.getDate()}`.padStart(2, '0')
   return `${y}-${m}-${d}`
+}
+
+/** `Date#getTimezoneOffset` semantics for any IANA timezone. */
+export function timeZoneOffsetMinutes(date: Date, timeZone: string): number {
+  const parts = partsInTimeZone(date, timeZone)
+  const localAsUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  )
+  return Math.round((date.getTime() - localAsUtc) / 60_000)
 }
 
 const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/

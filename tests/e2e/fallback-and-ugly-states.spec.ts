@@ -4,6 +4,7 @@ import {
   captureOnce,
   completeOnboarding,
   countPhotos,
+  delayCanvasEncoding,
   evidencePath,
   gotoApp,
   listStoredPhotos,
@@ -63,7 +64,11 @@ test.describe('capture fallback', () => {
     })
     writeFileSync(source, Buffer.from(png))
 
+    const selectedAt = new Date('2026-08-10T06:59:59.500Z')
+    await page.clock.install({ time: selectedAt })
+    await delayCanvasEncoding(page, 1_000)
     await page.getByTestId('file-fallback-input').setInputFiles(source)
+    await page.clock.runFor(2_000)
     await expect(page.getByTestId('toast')).toContainText('Saved')
     await expect.poll(async () => await countPhotos(page)).toBe(1)
 
@@ -73,6 +78,9 @@ test.describe('capture fallback', () => {
     // mirroring space as a live capture so the library stays consistent.
     expect(stored!.width / stored!.height).toBeCloseTo(0.75, 3)
     expect(stored!.mirrored).toBe(true)
+    expect(stored!.dayKey).toBe('2026-08-09')
+    expect(stored!.capturedAt).toBeGreaterThanOrEqual(selectedAt.getTime())
+    expect(stored!.capturedAt).toBeLessThan(Date.parse('2026-08-10T07:00:00Z'))
 
     // It becomes the ghost, exactly like a live capture would.
     await page.reload()
@@ -150,7 +158,7 @@ test.describe('ugly states', () => {
     await expect(status).toContainText('No camera was found')
   })
 
-  test('a same-day retake replaces rather than accumulates', async ({ page }) => {
+  test('a same-day retake keeps one active photo and moves the old one to Trash', async ({ page }) => {
     await gotoApp(page)
     await completeOnboarding(page)
     await waitForCameraLive(page)
@@ -165,22 +173,11 @@ test.describe('ugly states', () => {
     expect(stored).toHaveLength(1)
     expect(stored[0]!.id).toBe(second)
 
-    // The superseded photo's pixels are gone, not orphaned.
-    const orphan = await page.evaluate(async (id) => {
-      const db = await new Promise<IDBDatabase>((res, rej) => {
-        const req = indexedDB.open('selfie-a-day')
-        req.onsuccess = () => res(req.result)
-        req.onerror = () => rej(req.error ?? new Error('IndexedDB request failed'))
-      })
-      const row = await new Promise<unknown>((res, rej) => {
-        const req = db.transaction('masters', 'readonly').objectStore('masters').get(id)
-        req.onsuccess = () => res(req.result)
-        req.onerror = () => rej(req.error ?? new Error('IndexedDB request failed'))
-      })
-      db.close()
-      return row ?? null
-    }, first)
-    expect(orphan).toBeNull()
+    const allStored = await listStoredPhotos(page, { includeDeleted: true })
+    expect(allStored).toHaveLength(2)
+    const superseded = allStored.find((photo) => photo.id === first)
+    expect(typeof superseded?.deletedAt).toBe('number')
+    expect(superseded?.masterBytes).toBeGreaterThan(0)
   })
 
   test('deleting the newest photo re-derives the ghost from the one before it', async ({ page }) => {

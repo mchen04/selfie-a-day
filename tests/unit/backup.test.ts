@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { IDBFactory } from 'fake-indexeddb'
 import { newPhotoId } from '../../src/core/id.ts'
-import { SCHEMA_VERSION, type PhotoMeta, type StoredImage } from '../../src/core/types.ts'
+import {
+  DEFAULT_ALBUM_ID,
+  SCHEMA_VERSION,
+  type PhotoMeta,
+  type StoredImage,
+} from '../../src/core/types.ts'
 import {
   BackupFormatError,
   backupFilename,
@@ -9,6 +15,8 @@ import {
   parseBackup,
   parseBackupFile,
 } from '../../src/storage/backup.ts'
+import { createAlbum, getAlbum, updateAlbum } from '../../src/storage/albums.ts'
+import { forgetCachedDatabase } from '../../src/storage/db.ts'
 import { deleteAllPhotos, getMaster, listMeta, putPhoto, type PhotoWrite } from '../../src/storage/photos.ts'
 import { createZip, readZip, type Bytes } from '../../src/storage/zip.ts'
 
@@ -26,13 +34,20 @@ function pixels(seed: number, length = 512): ArrayBuffer {
   return out.buffer
 }
 
-function makeWrite(dayKey: string, capturedAt: number, seed: number): PhotoWrite {
+function makeWrite(
+  dayKey: string,
+  capturedAt: number,
+  seed: number,
+  albumId: string = DEFAULT_ALBUM_ID,
+): PhotoWrite {
   const id = newPhotoId(capturedAt)
   const master = pixels(seed)
   const meta: PhotoMeta = {
     id,
+    albumId,
     dayKey,
     capturedAt,
+    timeZone: 'America/Los_Angeles',
     tzOffsetMinutes: -420,
     width: 1080,
     height: 1440,
@@ -41,6 +56,7 @@ function makeWrite(dayKey: string, capturedAt: number, seed: number): PhotoWrite
     source: 'camera',
     masterBytes: master.byteLength,
     thumbBytes: 16,
+    deletedAt: null,
     schema: SCHEMA_VERSION,
   }
   return {
@@ -104,6 +120,23 @@ describe('backup export', () => {
     const exported = [...files.entries()].find(([name]) => name.startsWith('photos/'))![1]
     expect([...exported]).toEqual([...new Uint8Array(write!.master.bytes)])
   })
+
+  it('preserves albums when two journeys have a photo on the same day', async () => {
+    const physique = await createAlbum('Physique', 'America/New_York', 100)
+    const at = Date.parse('2026-08-09T18:00:00Z')
+    await putPhoto(makeWrite('2026-08-09', at, 1))
+    await putPhoto(makeWrite('2026-08-09', at + 1, 2, physique.id))
+
+    const { blob, manifest } = await exportBackup()
+    expect(manifest.albums.map((album) => album.name)).toEqual(['Selfies', 'Physique'])
+    expect(new Set(manifest.photos.map((photo) => photo.albumId))).toEqual(
+      new Set([DEFAULT_ALBUM_ID, physique.id]),
+    )
+
+    const files = [...readZip(await bytesOf(blob)).keys()].filter((name) => name.startsWith('photos/'))
+    expect(files).toHaveLength(2)
+    expect(new Set(files.map((name) => name.split('/')[1]))).toEqual(new Set(['selfies', 'physique']))
+  })
 })
 
 describe('backup round trip', () => {
@@ -122,6 +155,48 @@ describe('backup round trip', () => {
     const restored = await listMeta()
     expect(restored).toHaveLength(5)
     expect(restored.map((m) => m.dayKey).sort()).toEqual(originals.map((w) => w.meta.dayKey).sort())
+  })
+
+  it('restores custom settings for the default album onto a fresh device', async () => {
+    await updateAlbum(
+      DEFAULT_ALBUM_ID,
+      { name: 'Face Journey', timeZone: 'Asia/Tokyo' },
+      100,
+    )
+    await seed(1)
+    const parsed = parseBackup(await bytesOf((await exportBackup()).blob))
+
+    forgetCachedDatabase()
+    globalThis.indexedDB = new IDBFactory()
+    await importBackup(parsed, { makeThumbnail: fakeThumbnailer })
+
+    expect(await getAlbum(DEFAULT_ALBUM_ID)).toMatchObject({
+      name: 'Face Journey',
+      timeZone: 'Asia/Tokyo',
+    })
+  })
+
+  it('preserves default album settings already customized on this device', async () => {
+    await updateAlbum(
+      DEFAULT_ALBUM_ID,
+      { name: 'Backup Journey', timeZone: 'Asia/Tokyo' },
+      100,
+    )
+    const parsed = parseBackup(await bytesOf((await exportBackup()).blob))
+
+    forgetCachedDatabase()
+    globalThis.indexedDB = new IDBFactory()
+    await updateAlbum(
+      DEFAULT_ALBUM_ID,
+      { name: 'Local Journey', timeZone: 'America/New_York' },
+      200,
+    )
+    await importBackup(parsed, { makeThumbnail: fakeThumbnailer })
+
+    expect(await getAlbum(DEFAULT_ALBUM_ID)).toMatchObject({
+      name: 'Local Journey',
+      timeZone: 'America/New_York',
+    })
   })
 
   it('restores pixels byte-for-byte, not just metadata', async () => {
@@ -218,6 +293,11 @@ describe('backup round trip', () => {
     expect(after).toHaveLength(1)
     expect(after[0]!.capturedAt).toBe(newer.meta.capturedAt)
     expect(result.imported).toBe(1)
+    const deleted = await listMeta({ onlyDeleted: true })
+    expect(deleted).toHaveLength(1)
+    expect(deleted[0]?.id).toBe(older.meta.id)
+    expect(typeof deleted[0]?.deletedAt).toBe('number')
+    expect(await getMaster(older.meta.id)).not.toBeNull()
   })
 
   it('counts manifest entries it could not read, instead of reporting a clean restore', async () => {

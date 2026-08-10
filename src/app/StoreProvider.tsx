@@ -1,15 +1,39 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { CaptureResult } from '../camera/capture.ts'
-import { DEFAULT_SETTINGS, type Settings } from '../core/types.ts'
-import { deletePhoto, listMeta, putPhoto } from '../storage/photos.ts'
+import { defaultAlbum } from '../core/albums.ts'
+import { DEFAULT_SETTINGS, type Album, type PhotoMeta, type Settings } from '../core/types.ts'
+import {
+  createAlbum as createAlbumRecord,
+  ensureDefaultAlbum,
+  listAlbums,
+  updateAlbum as updateAlbumRecord,
+} from '../storage/albums.ts'
+import {
+  deletePhotoPermanently as deletePhotoPermanentlyRecord,
+  emptyTrash as emptyTrashRecords,
+  listMeta,
+  purgeExpiredTrash,
+  putPhoto,
+  restorePhoto as restorePhotoRecord,
+  trashPhoto as trashPhotoRecord,
+} from '../storage/photos.ts'
 import { loadSettings, saveSettings } from '../storage/settings.ts'
 import { AppContext, type AppContextValue, type AppState } from './store-context.ts'
+
+function activeMetas(allMetas: readonly PhotoMeta[], albumId: string): PhotoMeta[] {
+  return allMetas.filter((meta) => meta.albumId === albumId)
+}
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>({
     status: 'loading',
     storageError: null,
     metas: [],
+    allMetas: [],
+    trashedMetas: [],
+    undoTrash: null,
+    albums: [defaultAlbum()],
+    activeAlbum: defaultAlbum(),
     settings: DEFAULT_SETTINGS,
   })
 
@@ -31,9 +55,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const reload = useCallback(async () => {
     try {
-      const [metas, settings] = await Promise.all([listMeta(), loadSettings()])
+      await purgeExpiredTrash()
+      const [allMetas, trashedMetas, loadedAlbums, loadedSettings] = await Promise.all([
+        listMeta(),
+        listMeta({ onlyDeleted: true }),
+        listAlbums(),
+        loadSettings(),
+      ])
+      const albums = loadedAlbums.length > 0 ? loadedAlbums : [await ensureDefaultAlbum()]
+      const activeAlbum =
+        albums.find((album) => album.id === loadedSettings.activeAlbumId) ?? albums[0]!
+      const settings =
+        activeAlbum.id === loadedSettings.activeAlbumId
+          ? loadedSettings
+          : { ...loadedSettings, activeAlbumId: activeAlbum.id }
       settingsRef.current = settings
-      setState({ status: 'ready', storageError: null, metas, settings })
+      setState({
+        status: 'ready',
+        storageError: null,
+        metas: activeMetas(allMetas, activeAlbum.id),
+        allMetas,
+        trashedMetas,
+        undoTrash: null,
+        albums,
+        activeAlbum,
+        settings,
+      })
+      if (settings !== loadedSettings) await saveSettings(settings)
     } catch (err) {
       setState((prev) => ({
         ...prev,
@@ -52,21 +100,83 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     await putPhoto({ meta: result.meta, master: result.master, thumb: result.thumb })
     // Re-read rather than splice locally: the write may have replaced an
     // existing photo for the same day, and the store is the authority on that.
-    const metas = await listMeta()
-    setState((prev) => ({ ...prev, metas, storageError: null }))
+    const [allMetas, trashedMetas] = await Promise.all([
+      listMeta(),
+      listMeta({ onlyDeleted: true }),
+    ])
+    setState((prev) => ({
+      ...prev,
+      metas: activeMetas(allMetas, prev.activeAlbum.id),
+      allMetas,
+      trashedMetas,
+      storageError: null,
+    }))
   }, [])
 
-  const removePhoto = useCallback(async (id: string) => {
-    await deletePhoto(id)
-    const metas = await listMeta()
-    setState((prev) => ({ ...prev, metas }))
+  const trashPhoto = useCallback(async (id: string) => {
+    const trashed = await trashPhotoRecord(id)
+    const [allMetas, trashedMetas] = await Promise.all([
+      listMeta(),
+      listMeta({ onlyDeleted: true }),
+    ])
+    setState((prev) => ({
+      ...prev,
+      metas: activeMetas(allMetas, prev.activeAlbum.id),
+      allMetas,
+      trashedMetas,
+      undoTrash: trashed,
+    }))
+  }, [])
+
+  const restorePhoto = useCallback(async (id: string) => {
+    await restorePhotoRecord(id)
+    const [allMetas, trashedMetas] = await Promise.all([
+      listMeta(),
+      listMeta({ onlyDeleted: true }),
+    ])
+    setState((prev) => ({
+      ...prev,
+      metas: activeMetas(allMetas, prev.activeAlbum.id),
+      allMetas,
+      trashedMetas,
+      undoTrash: prev.undoTrash?.id === id ? null : prev.undoTrash,
+    }))
+  }, [])
+
+  const deletePhotoPermanently = useCallback(async (id: string) => {
+    await deletePhotoPermanentlyRecord(id)
+    const trashedMetas = await listMeta({ onlyDeleted: true })
+    setState((prev) => ({
+      ...prev,
+      trashedMetas,
+      undoTrash: prev.undoTrash?.id === id ? null : prev.undoTrash,
+    }))
+  }, [])
+
+  const emptyTrash = useCallback(async (): Promise<number> => {
+    const removed = await emptyTrashRecords()
+    setState((prev) => ({ ...prev, trashedMetas: [], undoTrash: null }))
+    return removed
+  }, [])
+
+  const dismissUndo = useCallback(() => {
+    setState((prev) => ({ ...prev, undoTrash: null }))
   }, [])
 
   const updateSettings = useCallback(async (patch: Partial<Settings>) => {
     const previous = settingsRef.current
     const next: Settings = { ...previous, ...patch }
     settingsRef.current = next
-    setState((prev) => ({ ...prev, settings: next }))
+    setState((prev) => {
+      const activeAlbum =
+        prev.albums.find((album) => album.id === next.activeAlbumId) ?? prev.activeAlbum
+      return {
+        ...prev,
+        settings: next,
+        activeAlbum,
+        metas: activeMetas(prev.allMetas, activeAlbum.id),
+      }
+    })
 
     try {
       await saveSettings(next)
@@ -75,14 +185,84 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // leave the screen showing a setting that is not on disk and will not
       // survive a reload. Snapping the control back is the honest signal.
       settingsRef.current = previous
-      setState((prev) => ({ ...prev, settings: previous }))
+      setState((prev) => {
+        const activeAlbum =
+          prev.albums.find((album) => album.id === previous.activeAlbumId) ?? prev.activeAlbum
+        return {
+          ...prev,
+          settings: previous,
+          activeAlbum,
+          metas: activeMetas(prev.allMetas, activeAlbum.id),
+        }
+      })
       throw err
     }
   }, [])
 
+  const selectAlbum = useCallback(
+    async (id: string) => {
+      await updateSettings({ activeAlbumId: id })
+    },
+    [updateSettings],
+  )
+
+  const createAlbum = useCallback(
+    async (name: string): Promise<Album> => {
+      const album = await createAlbumRecord(name)
+      setState((prev) => ({ ...prev, albums: [...prev.albums, album] }))
+      await updateSettings({ activeAlbumId: album.id })
+      return album
+    },
+    [updateSettings],
+  )
+
+  const updateAlbum = useCallback(
+    async (
+      id: string,
+      patch: { name?: string; timeZone?: string | null },
+    ): Promise<Album> => {
+      const album = await updateAlbumRecord(id, patch)
+      setState((prev) => ({
+        ...prev,
+        albums: prev.albums.map((item) => (item.id === id ? album : item)),
+        activeAlbum: prev.activeAlbum.id === id ? album : prev.activeAlbum,
+      }))
+      return album
+    },
+    [],
+  )
+
   const value = useMemo<AppContextValue>(
-    () => ({ ...state, actions: { savePhoto, removePhoto, updateSettings, reload } }),
-    [state, savePhoto, removePhoto, updateSettings, reload],
+    () => ({
+      ...state,
+      actions: {
+        savePhoto,
+        trashPhoto,
+        restorePhoto,
+        deletePhotoPermanently,
+        emptyTrash,
+        dismissUndo,
+        selectAlbum,
+        createAlbum,
+        updateAlbum,
+        updateSettings,
+        reload,
+      },
+    }),
+    [
+      state,
+      savePhoto,
+      trashPhoto,
+      restorePhoto,
+      deletePhotoPermanently,
+      emptyTrash,
+      dismissUndo,
+      selectAlbum,
+      createAlbum,
+      updateAlbum,
+      updateSettings,
+      reload,
+    ],
   )
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

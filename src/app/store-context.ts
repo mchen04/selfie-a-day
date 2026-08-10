@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react'
-import type { PhotoMeta, Settings } from '../core/types.ts'
+import type { Album, PhotoMeta, Settings } from '../core/types.ts'
 import type { CaptureResult } from '../camera/capture.ts'
 
 export interface AppState {
@@ -8,12 +8,26 @@ export interface AppState {
   storageError: string | null
   /** Newest first. `metas[0]` is what the ghost is derived from. */
   metas: PhotoMeta[]
+  /** Every active photo, used for backup and device storage totals. */
+  allMetas: PhotoMeta[]
+  trashedMetas: PhotoMeta[]
+  /** Most recently trashed photo, kept briefly for the global Undo action. */
+  undoTrash: PhotoMeta | null
+  albums: Album[]
+  activeAlbum: Album
   settings: Settings
 }
 
 export interface AppActions {
   savePhoto: (result: CaptureResult) => Promise<void>
-  removePhoto: (id: string) => Promise<void>
+  trashPhoto: (id: string) => Promise<void>
+  restorePhoto: (id: string) => Promise<void>
+  deletePhotoPermanently: (id: string) => Promise<void>
+  emptyTrash: () => Promise<number>
+  dismissUndo: () => void
+  selectAlbum: (id: string) => Promise<void>
+  createAlbum: (name: string) => Promise<Album>
+  updateAlbum: (id: string, patch: { name?: string; timeZone?: string | null }) => Promise<Album>
   updateSettings: (patch: Partial<Settings>) => Promise<void>
   reload: () => Promise<void>
 }

@@ -1,15 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { dayKeyOf } from '../../src/core/day.ts'
 import { newPhotoId } from '../../src/core/id.ts'
-import { SCHEMA_VERSION, type PhotoMeta } from '../../src/core/types.ts'
+import { DEFAULT_ALBUM_ID, SCHEMA_VERSION, type PhotoMeta } from '../../src/core/types.ts'
 import {
   deleteAllPhotos,
   deletePhoto,
+  emptyTrash,
   getMaster,
   getThumb,
   listMeta,
+  purgeExpiredTrash,
   putPhoto,
   putPhotos,
+  restorePhoto,
+  trashPhoto,
   type PhotoWrite,
 } from '../../src/storage/photos.ts'
 
@@ -30,8 +34,10 @@ function makeWrite(dayKey: string, capturedAt: number, opts: Partial<PhotoMeta> 
   const id = opts.id ?? newPhotoId(capturedAt)
   const meta: PhotoMeta = {
     id,
+    albumId: DEFAULT_ALBUM_ID,
     dayKey,
     capturedAt,
+    timeZone: 'UTC',
     tzOffsetMinutes: 0,
     width: 1080,
     height: 1440,
@@ -40,6 +46,7 @@ function makeWrite(dayKey: string, capturedAt: number, opts: Partial<PhotoMeta> 
     source: 'camera',
     masterBytes: 1000,
     thumbBytes: 100,
+    deletedAt: null,
     schema: SCHEMA_VERSION,
     ...opts,
   }
@@ -83,7 +90,7 @@ describe('photo repository', () => {
     expect((await ghostSource())?.dayKey).toBe('2026-08-09')
   })
 
-  it('replaces the existing photo when the same day is captured again', async () => {
+  it('moves the previous same-day photo to Trash when it is retaken', async () => {
     const first = makeWrite('2026-08-09', Date.parse('2026-08-09T09:00:00Z'))
     await putPhoto(first)
     const second = makeWrite('2026-08-09', Date.parse('2026-08-09T21:00:00Z'))
@@ -93,10 +100,30 @@ describe('photo repository', () => {
     expect(metas).toHaveLength(1)
     expect(metas[0]?.id).toBe(second.meta.id)
 
-    // The superseded photo's pixels must be gone too, not orphaned in storage.
-    expect(await getMaster(first.meta.id)).toBeNull()
-    expect(await getThumb(first.meta.id)).toBeNull()
+    const deleted = await listMeta({ onlyDeleted: true })
+    expect(deleted).toHaveLength(1)
+    expect(deleted[0]?.id).toBe(first.meta.id)
+    expect(typeof deleted[0]?.deletedAt).toBe('number')
+    expect(await getMaster(first.meta.id)).not.toBeNull()
+    expect(await getThumb(first.meta.id)).not.toBeNull()
     expect((await listMeta()).filter((m) => m.dayKey === '2026-08-09')).toHaveLength(1)
+  })
+
+  it('keeps same-day photos in different albums', async () => {
+    const capturedAt = Date.parse('2026-08-09T10:00:00Z')
+    const face = makeWrite('2026-08-09', capturedAt, {
+      albumId: 'face',
+    })
+    const physique = makeWrite('2026-08-09', capturedAt + 1, {
+      albumId: 'physique',
+    })
+
+    await putPhoto(face)
+    await putPhoto(physique)
+
+    expect(await listMeta()).toHaveLength(2)
+    expect(await getMaster(face.meta.id)).not.toBeNull()
+    expect(await getMaster(physique.meta.id)).not.toBeNull()
   })
 
   it('re-derives the ghost after the newest photo is deleted', async () => {
@@ -119,6 +146,52 @@ describe('photo repository', () => {
     await deletePhoto(only.meta.id)
     expect(await ghostSource()).toBeNull()
     expect(await listMeta()).toHaveLength(0)
+  })
+
+  it('moves a photo to trash without deleting its pixels and restores it', async () => {
+    const write = makeWrite('2026-08-09', Date.parse('2026-08-09T10:00:00Z'))
+    await putPhoto(write)
+
+    await trashPhoto(write.meta.id, 1_000)
+    expect(await listMeta()).toHaveLength(0)
+    expect(await listMeta({ onlyDeleted: true })).toMatchObject([
+      { id: write.meta.id, deletedAt: 1_000 },
+    ])
+    expect(await getMaster(write.meta.id)).not.toBeNull()
+
+    await restorePhoto(write.meta.id)
+    expect(await listMeta()).toMatchObject([{ id: write.meta.id, deletedAt: null }])
+    expect(await listMeta({ onlyDeleted: true })).toHaveLength(0)
+  })
+
+  it('will not restore over another active photo for the same album day', async () => {
+    const older = makeWrite('2026-08-09', Date.parse('2026-08-09T09:00:00Z'))
+    await putPhoto(older)
+    await trashPhoto(older.meta.id)
+
+    const replacement = makeWrite('2026-08-09', Date.parse('2026-08-09T20:00:00Z'))
+    await putPhoto(replacement)
+
+    await expect(restorePhoto(older.meta.id)).rejects.toThrow(/already has a photo/i)
+    expect((await listMeta())[0]?.id).toBe(replacement.meta.id)
+    expect(await listMeta({ onlyDeleted: true })).toHaveLength(1)
+  })
+
+  it('purges only trash older than 30 days and can empty the rest', async () => {
+    const old = makeWrite('2026-07-01', Date.parse('2026-07-01T10:00:00Z'))
+    const recent = makeWrite('2026-08-01', Date.parse('2026-08-01T10:00:00Z'))
+    await putPhoto(old)
+    await putPhoto(recent)
+    await trashPhoto(old.meta.id, 1_000)
+    await trashPhoto(recent.meta.id, 20 * 86_400_000)
+
+    expect(await purgeExpiredTrash(31 * 86_400_000)).toBe(1)
+    expect(await getMaster(old.meta.id)).toBeNull()
+    expect(await getMaster(recent.meta.id)).not.toBeNull()
+
+    expect(await emptyTrash()).toBe(1)
+    expect(await getMaster(recent.meta.id)).toBeNull()
+    expect(await listMeta({ onlyDeleted: true })).toHaveLength(0)
   })
 
   it('writes a batch atomically', async () => {

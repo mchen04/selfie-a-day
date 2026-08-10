@@ -1,9 +1,11 @@
 import { useServiceWorker } from '../pwa/useServiceWorker.ts'
 import { CaptureScreen } from './screens/CaptureScreen.tsx'
+import { UndoTrash } from './components/UndoTrash.tsx'
 import { OnboardingScreen } from './screens/OnboardingScreen.tsx'
 import { PhotoScreen } from './screens/PhotoScreen.tsx'
 import { SettingsScreen } from './screens/SettingsScreen.tsx'
 import { TimelineScreen } from './screens/TimelineScreen.tsx'
+import { TrashScreen } from './screens/TrashScreen.tsx'
 import { useRoute } from './router.ts'
 import { useApp } from './store-context.ts'
 
@@ -45,6 +47,8 @@ export function App() {
     <>
       {route.name === 'timeline' ? (
         <TimelineScreen />
+      ) : route.name === 'trash' ? (
+        <TrashScreen />
       ) : route.name === 'settings' ? (
         <SettingsScreen />
       ) : route.name === 'photo' ? (
@@ -52,6 +56,8 @@ export function App() {
       ) : (
         <CaptureScreen />
       )}
+
+      <UndoTrash />
 
       {sw.updateReady ? (
         <div className="banner banner--update" role="status" data-testid="update-banner">

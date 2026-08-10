@@ -30,12 +30,12 @@ export function PhotoScreen({ id }: { id: string }) {
     }
     try {
       const fallback = newer ?? older
-      await actions.removePhoto(meta.id)
+      await actions.trashPhoto(meta.id)
       if (fallback) navigate({ name: 'photo', id: fallback.id }, { replace: true })
       else navigate({ name: 'timeline' }, { replace: true })
     } catch (err) {
       setConfirmingDelete(false)
-      show(err instanceof Error ? err.message : 'That photo could not be deleted.', 'error')
+      show(err instanceof Error ? err.message : 'That photo could not be moved to Trash.', 'error')
     }
   }, [actions, confirmingDelete, meta, navigate, newer, older, show])
 
@@ -96,7 +96,7 @@ export function PhotoScreen({ id }: { id: string }) {
           data-danger={confirmingDelete}
           onClick={() => void onDelete()}
           onBlur={() => setConfirmingDelete(false)}
-          aria-label={confirmingDelete ? 'Confirm delete' : 'Delete photo'}
+          aria-label={confirmingDelete ? 'Confirm move to Trash' : 'Move photo to Trash'}
           data-testid="photo-delete"
         >
           <IconTrash />
@@ -105,7 +105,7 @@ export function PhotoScreen({ id }: { id: string }) {
 
       {confirmingDelete ? (
         <div className="banner banner--warn" role="alert" data-testid="delete-confirm">
-          <span>Delete this photo? Tap the bin again to confirm.</span>
+          <span>Move this photo to Trash? Tap the bin again to confirm.</span>
         </div>
       ) : null}
 

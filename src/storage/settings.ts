@@ -41,6 +41,10 @@ export function coerceSettings(stored: unknown): Settings {
     const v = raw[key]
     return typeof v === 'number' && Number.isFinite(v) ? v : null
   }
+  const string = (key: keyof Settings, fallback: string): string => {
+    const v = raw[key]
+    return typeof v === 'string' && v.length > 0 ? v : fallback
+  }
 
   return {
     ghostOpacity: num('ghostOpacity', 0.05, 0.95, DEFAULT_SETTINGS.ghostOpacity),
@@ -50,6 +54,7 @@ export function coerceSettings(stored: unknown): Settings {
     ghostEnabled: bool('ghostEnabled', DEFAULT_SETTINGS.ghostEnabled),
     onboardingCompleteAt: nullableTime('onboardingCompleteAt'),
     lastExportAt: nullableTime('lastExportAt'),
+    activeAlbumId: string('activeAlbumId', DEFAULT_SETTINGS.activeAlbumId),
     schema: SCHEMA_VERSION,
   }
 }

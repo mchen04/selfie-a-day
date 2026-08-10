@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { captureFromFile, captureFromVideo, type CaptureResult } from '../../camera/capture.ts'
 import { useCamera, type CameraState } from '../../camera/useCamera.ts'
-import { currentStreak, dayKeyOf, formatDayLabel } from '../../core/day.ts'
-import { IconAlert, IconCamera, IconSettings, IconTimeline } from '../components/Icons.tsx'
+import { currentStreak, formatDayLabel } from '../../core/day.ts'
+import {
+  IconAlert,
+  IconCamera,
+  IconChevronDown,
+  IconSettings,
+  IconTimeline,
+} from '../components/Icons.tsx'
 import { Advice } from '../components/Advice.tsx'
+import { AlbumPicker } from '../components/AlbumPicker.tsx'
 import { chooseAdvice, type AdviceKind } from '../advice.ts'
 import { CaptureFrame } from '../components/CaptureFrame.tsx'
 import { GhostControls } from '../components/GhostControls.tsx'
@@ -12,6 +19,7 @@ import { useToast } from '../useToast.ts'
 import { useNavigate } from '../router.ts'
 import { useApp } from '../store-context.ts'
 import { useStoredImage } from '../useStoredImage.ts'
+import { useCurrentDay } from '../useCurrentDay.ts'
 
 /** States where a tap should (re)start the camera rather than take a photo. */
 const NEEDS_START: ReadonlySet<CameraState> = new Set<CameraState>([
@@ -23,7 +31,7 @@ const NEEDS_START: ReadonlySet<CameraState> = new Set<CameraState>([
 ])
 
 export function CaptureScreen() {
-  const { metas, settings, storageError, actions } = useApp()
+  const { metas, allMetas, albums, activeAlbum, settings, storageError, actions } = useApp()
   const navigate = useNavigate()
   const { toast, show } = useToast()
 
@@ -31,11 +39,12 @@ export function CaptureScreen() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [busy, setBusy] = useState(false)
   const [flash, setFlash] = useState(false)
+  const [choosingAlbum, setChoosingAlbum] = useState(false)
   const [dismissed, setDismissed] = useState<ReadonlySet<AdviceKind>>(() => new Set())
 
   const latest = metas[0] ?? null
-  const today = dayKeyOf()
-  const todayDone = latest?.dayKey === today
+  const { today, timeZone: albumTimeZone } = useCurrentDay(activeAlbum.timeZone)
+  const todayDone = metas.some((meta) => meta.dayKey === today)
   const streak = currentStreak(
     metas.map((m) => m.dayKey),
     today,
@@ -74,9 +83,14 @@ export function CaptureScreen() {
     async (result: CaptureResult) => {
       await actions.savePhoto(result)
       const nextStreak = currentStreak([result.meta.dayKey, ...metas.map((m) => m.dayKey)], today)
-      show(nextStreak > 1 ? `Saved — ${nextStreak} days in a row` : 'Saved', 'success')
+      show(
+        nextStreak > 1
+          ? `Saved to ${activeAlbum.name} — ${nextStreak} days in a row`
+          : `Saved to ${activeAlbum.name}`,
+        'success',
+      )
     },
-    [actions, metas, show, today],
+    [actions, activeAlbum.name, metas, show, today],
   )
 
   const capture = useCallback(async () => {
@@ -100,12 +114,16 @@ export function CaptureScreen() {
       return
     }
 
+    const capturedAt = Date.now()
     setBusy(true)
     setFlash(true)
     try {
       const result = await captureFromVideo(video, {
         longEdge: settings.captureLongEdge,
         mirrored: storageMirrored,
+        albumId: activeAlbum.id,
+        timeZone: albumTimeZone,
+        now: capturedAt,
       })
       await persist(result)
     } catch (err) {
@@ -117,6 +135,8 @@ export function CaptureScreen() {
   }, [
     busy,
     camera,
+    activeAlbum.id,
+    albumTimeZone,
     needsStart,
     persist,
     settings.captureLongEdge,
@@ -132,6 +152,7 @@ export function CaptureScreen() {
       event.target.value = ''
       if (!file) return
 
+      const capturedAt = Date.now()
       setBusy(true)
       try {
         // Store in the same space as a live capture. A library that mixes
@@ -140,6 +161,9 @@ export function CaptureScreen() {
         const result = await captureFromFile(file, {
           longEdge: settings.captureLongEdge,
           mirrored: storageMirrored,
+          albumId: activeAlbum.id,
+          timeZone: albumTimeZone,
+          now: capturedAt,
         })
         await persist(result)
       } catch (err) {
@@ -148,7 +172,7 @@ export function CaptureScreen() {
         setBusy(false)
       }
     },
-    [persist, settings.captureLongEdge, storageMirrored, show],
+    [activeAlbum.id, albumTimeZone, persist, settings.captureLongEdge, storageMirrored, show],
   )
 
   // The web has no volume-button shutter — the ergonomic trick users of the
@@ -166,7 +190,14 @@ export function CaptureScreen() {
     return () => window.removeEventListener('keydown', onKey)
   }, [capture])
 
-  const advice = chooseAdvice({ metas, settings, dismissed })
+  const advice = chooseAdvice({ metas: allMetas, settings, dismissed })
+
+  const progress =
+    streak > 0
+      ? `${streak} day${streak === 1 ? '' : 's'} in a row`
+      : metas.length > 0
+        ? `${metas.length} photo${metas.length === 1 ? '' : 's'} so far`
+        : 'Day one'
 
   const shutterLabel = usingFileFallback
     ? "Take today's photo with the camera app"
@@ -179,16 +210,22 @@ export function CaptureScreen() {
   return (
     <div className="screen capture" data-testid="capture-screen">
       <header className="topbar">
-        <div className="topbar__title">
-          {todayDone ? "Today's photo is in" : 'Today'}
-          <span className="topbar__sub" data-testid="streak-label">
-            {streak > 0
-              ? `${streak} day${streak === 1 ? '' : 's'} in a row`
-              : metas.length > 0
-                ? `${metas.length} photo${metas.length === 1 ? '' : 's'} so far`
-                : 'Day one'}
+        <button
+          type="button"
+          className="topbar__title topbar__album"
+          onClick={() => setChoosingAlbum(true)}
+          aria-label={`Choose album. ${activeAlbum.name} selected`}
+          data-testid="active-album-picker"
+        >
+          <span className="topbar__album-line">
+            {activeAlbum.name} <IconChevronDown size={16} />
           </span>
-        </div>
+          <span className="topbar__sub">
+            <span data-testid="today-status">{todayDone ? 'Today saved' : 'Today'}</span>
+            {' · '}
+            <span data-testid="streak-label">{progress}</span>
+          </span>
+        </button>
         <button
           type="button"
           className="iconbtn"
@@ -250,7 +287,7 @@ export function CaptureScreen() {
 
       <Advice
         kind={advice}
-        photoCount={metas.length}
+        photoCount={allMetas.length}
         onBackup={() => navigate({ name: 'settings' })}
         onDismiss={(kind) => setDismissed((prev) => new Set(prev).add(kind))}
       />
@@ -305,6 +342,19 @@ export function CaptureScreen() {
       />
 
       <Toast toast={toast} />
+
+      {choosingAlbum ? (
+        <AlbumPicker
+          albums={albums}
+          photos={allMetas}
+          activeAlbumId={activeAlbum.id}
+          onSelect={actions.selectAlbum}
+          onCreate={async (name) => {
+            await actions.createAlbum(name)
+          }}
+          onClose={() => setChoosingAlbum(false)}
+        />
+      ) : null}
     </div>
   )
 }
