@@ -47,7 +47,15 @@ export function TimelineScreen() {
   // Two photos is the minimum where a timelapse means anything.
   const canPlay = metas.length >= 2
 
-  if (playing) return <Playback photos={metas} onClose={() => setPlaying(false)} />
+  if (playing) {
+    return (
+      <Playback
+        photos={metas}
+        albumName={activeAlbum.name}
+        onClose={() => setPlaying(false)}
+      />
+    )
+  }
 
   return (
     <div className="screen" data-testid="timeline-screen">

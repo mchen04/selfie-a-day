@@ -2,11 +2,11 @@
 
 ```
 GATES: 12/12 closed
-WAVE: 6 — complete. Both loops closed, fresh-eyes pass independently green.
+WAVE: 7 — review follow-up complete: albums, timezone days, Trash, timelapse export.
 LOOP: ux 3/8 converged | quality 4 — productive, did NOT reach 2x APPROVE
       (concrete reason recorded in docs/code-quality-loop.log.md)
-LAST VERIFIED: npm run verify (typecheck + lint + test + build) exit 0;
-               npx playwright test 90 passed / 0 failed;
+LAST VERIFIED: 2026-08-10 npm run verify:full exit 0;
+               129 unit tests passed; 102 local e2e passed / 14 production skipped;
                E2E_BASE_URL=https://selfie-a-day.vercel.app npx playwright test
                tests/e2e/production.spec.ts 14 passed;
                fresh-eyes pass gates 2-8 re-established from scratch: 7/7 PASS
@@ -25,7 +25,7 @@ quoted in the order it appears there, with the evidence that closed it.
 
 | # | Gate | State | Evidence |
 |---|---|---|---|
-| 1 | `docs/research.md`, dated, both tracks, explicit build/cut per feature, states what changed the design | **CLOSED** | `docs/research.md` — 2026-08-09. Technical track from WebKit trunk source, WebKit Bugzilla, webkit.org/blog, MDN. Product track: 21 shipping apps queried live via the iTunes Lookup API and Play Store on 2026-08-09, 22 features decided, 22 complaint clusters. Part 3 lists 12 concrete design changes traced to specific findings, plus 3 findings that produced no change and why. |
+| 1 | `docs/research.md`, dated, both tracks, explicit build/cut per feature, states what changed the design | **CLOSED** | `docs/research.md` — original 2026-08-09 pass plus a 2026-08-10 follow-up on albums, timelapse controls/export, timezone days, and reversible deletion. Part 3 now traces 16 concrete design changes to findings. |
 | 2 | `npm run verify` exits 0, output pasted, shown red once on a broken state | **CLOSED** | Exit 0. All four stages independently proven able to fail: typecheck (injected type error, `error TS2322`), lint (injected `fetch()`, caught by the local-first guardrail), test (broke the cover-crop centring, 2 geometry tests failed), build (missing CSS import, `Could not resolve`). Green again after restore. |
 | 3 | Core flow in a real browser with screenshots: permission → live preview with grid **and** ghost → capture → cold restart → that photo is the ghost | **CLOSED** | `tests/e2e/core-flow.spec.ts`, both viewports. Ghost bytes asserted **byte-for-byte identical** to the stored master after reload. Alignment verified against a known camera target by reading pixels (`tests/e2e/alignment.spec.ts`), not by eye. Screenshots in the evidence directory. |
 | 4 | Photos survive restart and a service-worker update, proven by a scripted test; export/import works | **CLOSED** | `tests/e2e/persistence.spec.ts`. A **genuine** worker update: the deployed `sw.js` bytes are changed on disk, `registration.update()` installs a new worker, `SKIP_WAITING` activates it, *and* every Cache Storage bucket is purged — photos still there. Export downloads a real ZIP, device wiped, restore returns matching metadata and byte length end-to-end; `tests/unit/backup.test.ts` additionally asserts the restored master is **byte-for-byte** identical. The archive was validated with the **system `unzip`**, not only our own reader: `unzip -t` reports "No errors detected", it extracts to `manifest.json` / `README.txt` / `photos/<date>.webp`, and `file` identifies the photo as a genuine WebP. Export holds **one photo at a time** in the JS heap — measured on a 78 MB library: heap 23 MB before, 23 MB peak, 23 MB after. |
@@ -140,7 +140,7 @@ red one. Each of these came out of the fresh-eyes pass.
   simulated by stubbing `getUserMedia` to reject. The real iOS prompt is
   unexercised.
 - **`npm run verify` does not run the browser suite.** It is typecheck, lint,
-  111 unit tests and a bundle. Green there says nothing about the camera, the
+  129 unit tests and a bundle. Green there says nothing about the camera, the
   ghost, IndexedDB or the deployed site — that is `npm run verify:full`.
 - **The end-to-end export test exports one photo.** Multi-photo round-tripping is
   covered at the unit layer only.
@@ -162,8 +162,8 @@ slower, but this bounds the app's own overhead):
 | DOM interactive | **4 ms** |
 | Tap "Turn on the camera" → live preview | **93 ms** |
 | Shutter → photo saved and showing as the ghost | **101 ms** |
-| JS bundle | **80 KB** gzipped (254 KB raw) |
-| CSS | 16 KB |
+| JS bundle | **89 KB** gzipped (285 KB raw) |
+| CSS | **5 KB** gzipped (21 KB raw) |
 
 At **ten years of daily photos (3650)**: boot 45 ms, timeline opens in 108 ms
 with all 3650 cells in the DOM and **12** thumbnails decoded.
@@ -213,7 +213,7 @@ walker for that reason.
 
 ```
 npm run verify                      # typecheck + lint + test + build
-npx playwright test                 # 90 local tests (+14 production, skipped)
+npx playwright test                 # 102 local tests (+14 production, skipped)
 npm run verify:full                 # both
 E2E_BASE_URL=https://selfie-a-day.vercel.app npx playwright test tests/e2e/production.spec.ts
 ```

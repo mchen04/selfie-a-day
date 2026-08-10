@@ -1,7 +1,7 @@
 # Selfie a Day
 
-One selfie a day, lined up with a faint ghost of your last photo, so months later
-the timeline plays back without your head jumping around.
+One aligned photo a day in each album, so face, physique, or any other long-running
+change can stay separate and play back without the subject jumping around.
 
 **Live: https://selfie-a-day.vercel.app**
 
@@ -12,9 +12,13 @@ no network requests at all once it has loaded.
 
 ## The idea
 
-Open the app. The camera is already live, with faint guides and a ghost of your
-last photo over it. Line your eyes up with the ghost, tap once, done. Under five
-seconds, no menus.
+Open the app. Choose an album, then line up against faint guides and the ghost of
+that album's last photo. Each album gets its own one-photo-per-day slot and can
+follow the device timezone or a manual IANA timezone.
+
+Each album has a fast timelapse with scrubbing, three speeds, looping, date-range
+filters, optional date stamps, duration preview, and local video export/share.
+Removed photos stay recoverable in Trash for 30 days, with an immediate Undo.
 
 The failure this exists to avoid is an alignment aid that is decorative: a ghost
 too faint to use, buried behind a menu, or — the one real users complain about
@@ -74,7 +78,7 @@ the only origins where the camera works.
 
 ```bash
 npm run verify       # typecheck + lint + test + build
-npx playwright test  # 90 local end-to-end tests, mobile + desktop viewports
+npx playwright test  # production end-to-end tests, mobile + desktop viewports
 npm run verify:full  # both
 ```
 

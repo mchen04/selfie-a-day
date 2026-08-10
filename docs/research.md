@@ -94,7 +94,7 @@ Supporting facts:
 |---|---|---|---|
 | Ghost / translucent overlay of previous photo | 10 | **BUILD** | The product. |
 | Grid / alignment guide lines | 7 | **BUILD** | Thirds + an eye line. Eyes are what faces align by. |
-| Timelapse playback | 16 | **BUILD** | Named in the north star: *"the timeline plays back without his head jumping around."* In-app playback only. |
+| Timelapse playback | 16 | **BUILD** | Named in the north star: *"the timeline plays back without his head jumping around."* Includes scrubbing, speed, looping, ranges, dates, and export after the 2026-08-10 follow-up below. |
 | Local-only storage as a privacy promise | 7 | **BUILD** | Already the hard constraint. |
 | Save-to-camera-roll / export as the real backup | 7 | **BUILD** | Shipped as a plain `.zip` of dated image files. |
 | Calendar / month-grouped browsing | 5 | **BUILD** | Month headers in the timeline; nearly free. |
@@ -102,9 +102,9 @@ Supporting facts:
 | Resolution / quality options | 4 | **BUILD** | Three presets with honest per-day byte costs. |
 | Automatic face alignment (eye-based) | 6 | **CUT** | Explicitly cut by the brief; also unavailable — `FaceDetector` is Chrome-only behind a flag, absent on iOS. Would need a bundled ML model, breaking the "loads instantly, works offline" property. **This is the main axis of competition among 2025–26 entrants and the clearest reason a v2 would revisit it.** |
 | Daily reminder notification | **15** | **CUT** | Cut by the brief. Independently supported: reminders are the *second-largest* complaint category — fire at the wrong time, fire endlessly, cannot be turned off. iOS web push also requires Home Screen install and permission from a direct tap. |
-| Video file export (MP4/GIF) | 16 / 4 | **CUT (stretch)** | Playback is built; encoding a file is not. Paywalling export is the #1 source of one-star reviews in the category, so if it is ever added it must be free. |
+| Video file export (MP4/GIF) | 16 / 4 | **BUILD (2026-08-10)** | Free local MP4/WebM export. The app feature-detects the container rather than promising one codec everywhere. |
 | Import from camera roll | 11 | **PARTIAL** | The file-input fallback imports one photo as today's. Bulk import is cut: it is where these apps most reliably crash and silently corrupt ordering. |
-| Multiple projects / timelines | 10 | **CUT** | Contradicts "one selfie a day". The most common paid feature and a common reason to leave an app — noted for v2. |
+| Multiple projects / timelines | 10 | **BUILD (2026-08-10)** | Albums make "one a day" independent per journey, which is necessary for face and physique tracking on the same day. |
 | Cloud backup to Dropbox/Drive | 4 | **CUT** | Photos never leave the device. |
 | Post-capture repositioning | 3 | **CUT** | See below — this is a considered cut, not an omission. |
 | Passcode / biometric lock | 3 | **CUT** | Device lock already covers this; a web app cannot do it credibly. |
@@ -112,8 +112,46 @@ Supporting facts:
 | Front + rear camera | 3 | **CUT** | It is a selfie app; a second facing doubles the mirroring state space. |
 | Notes / journal text per photo | 2 | **CUT** | Not the north star. |
 | Watermark on free exports | 2 | **CUT** | Nothing is paid. |
-| Date/timestamp overlay on export | 3 | **CUT** | Burning pixels into the archive is irreversible. Dates are metadata. |
+| Date/timestamp overlay on export | 3 | **BUILD, OPTIONAL (2026-08-10)** | Dates are drawn only during playback/export. Stored masters remain untouched, so the old irreversibility objection no longer applies. |
 | Multiple photos per day | 5 | **CUT** | One per day; a retake replaces. The schema keeps the door open (non-unique day index). |
+
+### Follow-up: albums, timelapse controls, timezone, and recovery (2026-08-10)
+
+The review request reopened the three earlier cuts above. A focused pass found a
+consistent minimum useful timelapse rather than a reason to copy a full video editor:
+
+- **Independent projects are a real use case, not a contradiction.** Dayli describes
+  separate photo journals/collections, renaming, and video export/share; its reviews
+  explicitly mention multiple categories and three export speeds. Face and physique
+  are two daily journeys, so the invariant becomes one photo per album per day.
+  ([Dayli App Store listing](https://apps.apple.com/us/app/dayli-everyday-photo-journal/id717858939),
+  [reviews](https://apps.apple.com/us/app/dayli-everyday-photo-journal/id717858939?platform=iphone&see-all=reviews))
+- **Range, speed, duration, and share/export are the useful core.** 1 Second Everyday
+  exposes month/year/custom/date-range selection and shows the resulting duration as
+  speed changes. Dayli also saves and shares the finished timelapse. Those findings
+  produced All/30 days/year/custom, 3/6/12 fps, an exact duration label, and local
+  export/share. ([1SE date selection](https://help.1se.co/en/articles/3703781-how-to-choose-the-dates-to-mash),
+  [1SE speed](https://help.1se.co/en/articles/8200716-how-to-speed-up-your-mash))
+- **Music, morphing, filters, and arbitrary reordering remain cut.** They turn a
+  progress viewer into an editor, add rights/encoding complexity, or hide the honest
+  hard cuts that expose alignment quality. Looping and optional dates are lightweight
+  playback aids; dates never alter source photos.
+- **The browser can encode locally without a new dependency.** Canvas `captureStream()`
+  provides a video track, `MediaRecorder` accepts canvas-generated tracks, and
+  `MediaRecorder.isTypeSupported()` lets the app choose MP4/H.264 or WebM at runtime.
+  Unsupported browsers keep playback and disable only export.
+  ([MDN canvas capture](https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/captureStream),
+  [WebKit MediaRecorder](https://webkit.org/blog/11353/mediarecorder-api/),
+  [MDN format detection](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder/isTypeSupported_static))
+- **Day boundaries follow the album, not UTC.** `Intl.DateTimeFormat().resolvedOptions()`
+  exposes the runtime's IANA timezone, so automatic mode follows the device. A manual
+  per-album override makes travel or a fixed project location deterministic. The
+  override affects future captures only; rebucketing history would rewrite what day
+  the user actually saved. ([MDN resolved options](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/DateTimeFormat/resolvedOptions))
+- **Deletion is reversible for 30 days.** This matches the recovery model users already
+  know from Apple Photos: restore during the retention window, or permanently delete
+  early. The app also offers immediate Undo and empties expired items locally.
+  ([Apple Photos recovery](https://support.apple.com/en-nz/124460))
 
 ### What users actually complain about
 
@@ -164,6 +202,27 @@ Everything in this section is a design or code change that would not exist witho
 
 12. **iOS shell hardening from the checklist:** `viewport-fit=cover`, `apple-touch-icon` at 180×180 alongside manifest icons, `apple-mobile-web-app-capable` retained (Apple's own reference says `status-bar-style` has no effect without it), `touch-action: manipulation` instead of `user-scalable=no`, `overscroll-behavior: none` on both `html` and `body`, and `-webkit-touch-callout`/`user-select` suppressed on controls but re-enabled on prose.
 
+13. **The single timeline became independent albums after the 2026-08-10 review.**
+    The migration places every existing photo in `Selfies`; captures, the daily slot,
+    the ghost, timeline, and timelapse are all scoped by album. Selection persists,
+    and albums can be created and renamed without moving existing photos.
+
+14. **Day identity now records an IANA timezone.** Automatic mode is read from
+    `Intl.DateTimeFormat().resolvedOptions().timeZone`; each album can pin a manual
+    override. A live visibility/midnight watcher updates an open capture screen, while
+    stored day keys never change retroactively.
+
+15. **Timelapse export was promoted from stretch to shipped.** The player filters by
+    inclusive date ranges, reports frame count and duration, loops optionally, and can
+    stamp dates without modifying masters. Export uses a rolling decode pipeline,
+    canvas capture, codec feature detection, and `MediaRecorder`; mobile file sharing
+    is preferred when available and desktop falls back to download.
+
+16. **Deletion is now a reversible state transition.** Pixels remain in IndexedDB for
+    30 days, immediate Undo and a central Trash screen both restore them, and a restore
+    refuses to overwrite a newer active photo in the same album/day. Empty Trash and
+    expiry are the only bulk permanent-delete paths.
+
 ### Findings that produced no change, recorded so the reasoning is auditable
 
 - **`display_override`, `orientation`, `background_color` in the manifest** — ignored by iOS. Left in place; they cost nothing and are honoured elsewhere.
@@ -177,3 +236,5 @@ Everything in this section is a design or code change that would not exist witho
 Primary: [bugs.webkit.org 185448](https://bugs.webkit.org/show_bug.cgi?id=185448) · [181849](https://bugs.webkit.org/show_bug.cgi?id=181849) · [215884](https://bugs.webkit.org/show_bug.cgi?id=215884) · [235687](https://bugs.webkit.org/show_bug.cgi?id=235687) · [240216](https://bugs.webkit.org/show_bug.cgi?id=240216) · [275527](https://bugs.webkit.org/show_bug.cgi?id=275527) · [280394](https://bugs.webkit.org/show_bug.cgi?id=280394) · WebKit trunk `WebPreferencesDefaultValues.cpp`, `UserMediaPermissionRequestManagerProxy.cpp`, `RealtimeMediaSource.cpp`, `ResourceLoadStatisticsStore.cpp`, `NetworkStorageManager` · [WebKit PR 24971](https://github.com/WebKit/WebKit/pull/24971) · [webkit.org/blog/10218](https://webkit.org/blog/10218/full-third-party-cookie-blocking-and-more/) · [11338](https://webkit.org/blog/11338/cname-cloaking-and-bounce-tracking-defense/) · [14205](https://webkit.org/blog/14205/news-from-wwdc23-webkit-features-in-safari-17-beta/) · [14403](https://webkit.org/blog/14403/updates-to-storage-policy/) · [webkit.org/tracking-prevention](https://webkit.org/tracking-prevention/) · Apple HIG (camera, layout) · MDN browser-compat-data.
 
 Secondary / cross-checked: MDN storage quotas (2026-01-05) · caniuse Stream API · web.dev *Storage for the web* (2024-09-23, **contradicted** on quota) · iTunes Lookup API and Google Play listings for 21 apps (queried 2026-08-09) · App Store and Play review text.
+
+2026-08-10 follow-up: [Dayli App Store listing](https://apps.apple.com/us/app/dayli-everyday-photo-journal/id717858939) · [1SE date selection](https://help.1se.co/en/articles/3703781-how-to-choose-the-dates-to-mash) · [1SE speed and duration](https://help.1se.co/en/articles/8200716-how-to-speed-up-your-mash) · [Apple Photos 30-day recovery](https://support.apple.com/en-nz/124460) · [MDN resolved timezone](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/DateTimeFormat/resolvedOptions) · [MDN canvas capture](https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/captureStream) · [WebKit MediaRecorder](https://webkit.org/blog/11353/mediarecorder-api/) · [MDN codec/container detection](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder/isTypeSupported_static).
