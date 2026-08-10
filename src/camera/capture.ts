@@ -1,7 +1,13 @@
-import { dayKeyOf } from '../core/day.ts'
+import { dayKeyOf, resolvedTimeZone, timeZoneOffsetMinutes } from '../core/day.ts'
 import { computeCoverCrop, FRAME_ASPECT, isFrameSpace, outputSize } from '../core/geometry.ts'
 import { newPhotoId } from '../core/id.ts'
-import { SCHEMA_VERSION, type CaptureSource, type PhotoMeta, type StoredImage } from '../core/types.ts'
+import {
+  DEFAULT_ALBUM_ID,
+  SCHEMA_VERSION,
+  type CaptureSource,
+  type PhotoMeta,
+  type StoredImage,
+} from '../core/types.ts'
 import { bestEncodeFormat, canvasToBlob, decodeImage, makeThumbnail, MASTER_QUALITY } from './encode.ts'
 
 export interface CaptureOptions {
@@ -10,6 +16,9 @@ export interface CaptureOptions {
   mirrored: boolean
   source?: CaptureSource
   now?: number
+  albumId?: string
+  /** IANA timezone used for this album's day boundary. */
+  timeZone?: string
 }
 
 export interface CaptureResult {
@@ -69,15 +78,19 @@ export async function captureFromSource(
   const bytes = await blob.arrayBuffer()
 
   const capturedAt = options.now ?? Date.now()
+  const capturedDate = new Date(capturedAt)
+  const timeZone = options.timeZone ?? resolvedTimeZone()
   const id = newPhotoId(capturedAt)
   const thumb = await makeThumbnail(bytes, mime)
 
   return {
     meta: {
       id,
-      dayKey: dayKeyOf(new Date(capturedAt)),
+      albumId: options.albumId ?? DEFAULT_ALBUM_ID,
+      dayKey: dayKeyOf(capturedDate, timeZone),
       capturedAt,
-      tzOffsetMinutes: new Date(capturedAt).getTimezoneOffset(),
+      timeZone,
+      tzOffsetMinutes: timeZoneOffsetMinutes(capturedDate, timeZone),
       width,
       height,
       mime,
@@ -85,6 +98,7 @@ export async function captureFromSource(
       source: options.source ?? 'camera',
       masterBytes: bytes.byteLength,
       thumbBytes: thumb.bytes.byteLength,
+      deletedAt: null,
       schema: SCHEMA_VERSION,
     },
     master: { id, mime, width, height, bytes },

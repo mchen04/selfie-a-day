@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { newPhotoId } from '../../src/core/id.ts'
-import { SCHEMA_VERSION, type PhotoMeta } from '../../src/core/types.ts'
+import { DEFAULT_ALBUM_ID, SCHEMA_VERSION, type PhotoMeta } from '../../src/core/types.ts'
 import {
   DB_NAME,
   DB_VERSION,
+  INDEX_ALBUM_DAY,
   SCHEMA_MIGRATIONS,
+  STORE_ALBUMS,
   STORE_MASTERS,
   STORE_PHOTOS,
   STORE_THUMBS,
@@ -15,8 +17,10 @@ import {
 function metaFor(dayKey: string, capturedAt: number): PhotoMeta {
   return {
     id: newPhotoId(capturedAt),
+    albumId: DEFAULT_ALBUM_ID,
     dayKey,
     capturedAt,
+    timeZone: 'UTC',
     tzOffsetMinutes: 0,
     width: 1080,
     height: 1440,
@@ -25,11 +29,32 @@ function metaFor(dayKey: string, capturedAt: number): PhotoMeta {
     source: 'camera',
     masterBytes: 42,
     thumbBytes: 8,
+    deletedAt: null,
     schema: SCHEMA_VERSION,
   }
 }
 
-function write(db: IDBDatabase, meta: PhotoMeta): Promise<void> {
+type LegacyPhotoMeta = Omit<PhotoMeta, 'albumId' | 'timeZone' | 'deletedAt'>
+
+function legacyMetaFor(dayKey: string, capturedAt: number): LegacyPhotoMeta {
+  const current = metaFor(dayKey, capturedAt)
+  return {
+    id: current.id,
+    dayKey: current.dayKey,
+    capturedAt: current.capturedAt,
+    tzOffsetMinutes: current.tzOffsetMinutes,
+    width: current.width,
+    height: current.height,
+    mime: current.mime,
+    mirrored: current.mirrored,
+    source: current.source,
+    masterBytes: current.masterBytes,
+    thumbBytes: current.thumbBytes,
+    schema: 1,
+  }
+}
+
+function write(db: IDBDatabase, meta: PhotoMeta | LegacyPhotoMeta): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction([STORE_PHOTOS, STORE_THUMBS, STORE_MASTERS], 'readwrite')
     tx.objectStore(STORE_PHOTOS).put(meta)
@@ -54,10 +79,14 @@ describe('schema ladder', () => {
 
   it('creates the expected stores and indexes on a first run', async () => {
     const db = await openDatabase(DB_NAME, DB_VERSION, SCHEMA_MIGRATIONS)
-    expect([...db.objectStoreNames].sort()).toEqual(['masters', 'meta', 'photos', 'thumbs'])
+    expect([...db.objectStoreNames].sort()).toEqual(['albums', 'masters', 'meta', 'photos', 'thumbs'])
 
     const tx = db.transaction(STORE_PHOTOS, 'readonly')
-    expect([...tx.objectStore(STORE_PHOTOS).indexNames].sort()).toEqual(['by_capturedAt', 'by_day'])
+    expect([...tx.objectStore(STORE_PHOTOS).indexNames].sort()).toEqual([
+      'by_album_day',
+      'by_capturedAt',
+      'by_day',
+    ])
     db.close()
   })
 
@@ -69,68 +98,60 @@ describe('schema ladder', () => {
   it('preserves every photo across a schema upgrade', async () => {
     const v1 = await openDatabase(DB_NAME, 1, SCHEMA_MIGRATIONS)
     const metas = [
-      metaFor('2026-08-07', Date.parse('2026-08-07T10:00:00Z')),
-      metaFor('2026-08-08', Date.parse('2026-08-08T10:00:00Z')),
-      metaFor('2026-08-09', Date.parse('2026-08-09T10:00:00Z')),
+      legacyMetaFor('2026-08-07', Date.parse('2026-08-07T10:00:00Z')),
+      legacyMetaFor('2026-08-08', Date.parse('2026-08-08T10:00:00Z')),
+      legacyMetaFor('2026-08-09', Date.parse('2026-08-09T10:00:00Z')),
     ]
     for (const meta of metas) await write(v1, meta)
     expect(await readAll(v1, STORE_PHOTOS)).toHaveLength(3)
     v1.close()
 
-    // A plausible future rung: add an index to an existing store.
-    let ranUpgrade = false
-    const futureLadder = [
-      ...SCHEMA_MIGRATIONS,
-      (_db: IDBDatabase, tx: IDBTransaction) => {
-        ranUpgrade = true
-        tx.objectStore(STORE_PHOTOS).createIndex('by_source', 'source', { unique: false })
-      },
-    ]
-
-    const v2 = await openDatabase(DB_NAME, 2, futureLadder)
-    expect(ranUpgrade).toBe(true)
-    expect(v2.version).toBe(2)
+    const v2 = await openDatabase(DB_NAME, DB_VERSION, SCHEMA_MIGRATIONS)
+    expect(v2.version).toBe(DB_VERSION)
 
     const photos = (await readAll(v2, STORE_PHOTOS)) as PhotoMeta[]
     expect(photos).toHaveLength(3)
     expect(photos.map((p) => p.dayKey).sort()).toEqual(['2026-08-07', '2026-08-08', '2026-08-09'])
+    expect(photos.every((photo) => photo.albumId === DEFAULT_ALBUM_ID)).toBe(true)
+    expect(photos.every((photo) => photo.deletedAt === null)).toBe(true)
     expect(await readAll(v2, STORE_MASTERS)).toHaveLength(3)
     expect(await readAll(v2, STORE_THUMBS)).toHaveLength(3)
 
+    expect(await readAll(v2, STORE_ALBUMS)).toHaveLength(1)
     const tx = v2.transaction(STORE_PHOTOS, 'readonly')
-    expect([...tx.objectStore(STORE_PHOTOS).indexNames]).toContain('by_source')
+    expect([...tx.objectStore(STORE_PHOTOS).indexNames]).toContain(INDEX_ALBUM_DAY)
     v2.close()
   })
 
   it('runs every intervening rung when upgrading across two versions at once', async () => {
     // Someone who skipped a release must not skip a migration.
     const v1 = await openDatabase(DB_NAME, 1, SCHEMA_MIGRATIONS)
-    await write(v1, metaFor('2026-08-09', Date.parse('2026-08-09T10:00:00Z')))
+    await write(v1, legacyMetaFor('2026-08-09', Date.parse('2026-08-09T10:00:00Z')))
     v1.close()
 
     const ran: number[] = []
     const ladder = [
       ...SCHEMA_MIGRATIONS,
       (_db: IDBDatabase, tx: IDBTransaction) => {
-        ran.push(2)
+        ran.push(3)
         tx.objectStore(STORE_PHOTOS).createIndex('by_source', 'source', { unique: false })
       },
       (db: IDBDatabase) => {
-        ran.push(3)
+        ran.push(4)
         db.createObjectStore('notes', { keyPath: 'id' })
       },
     ]
 
-    const v3 = await openDatabase(DB_NAME, 3, ladder)
-    expect(ran).toEqual([2, 3])
-    expect(await readAll(v3, STORE_PHOTOS)).toHaveLength(1)
-    expect([...v3.objectStoreNames]).toContain('notes')
-    v3.close()
+    const v4 = await openDatabase(DB_NAME, 4, ladder)
+    expect(ran).toEqual([3, 4])
+    expect(await readAll(v4, STORE_PHOTOS)).toHaveLength(1)
+    expect([...v4.objectStoreNames]).toContain('notes')
+    v4.close()
   })
 
   it('refuses to open when a rung is missing rather than corrupting data', async () => {
     const v1 = await openDatabase(DB_NAME, 1, SCHEMA_MIGRATIONS)
     v1.close()
-    await expect(openDatabase(DB_NAME, 3, SCHEMA_MIGRATIONS)).rejects.toThrow()
+    await expect(openDatabase(DB_NAME, DB_VERSION + 2, SCHEMA_MIGRATIONS)).rejects.toThrow()
   })
 })

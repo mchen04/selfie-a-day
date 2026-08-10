@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { newPhotoId } from '../../src/core/id.ts'
-import { SCHEMA_VERSION, type PhotoMeta, type StoredImage } from '../../src/core/types.ts'
+import {
+  DEFAULT_ALBUM_ID,
+  SCHEMA_VERSION,
+  type PhotoMeta,
+  type StoredImage,
+} from '../../src/core/types.ts'
 import {
   BackupFormatError,
   backupFilename,
@@ -9,6 +14,7 @@ import {
   parseBackup,
   parseBackupFile,
 } from '../../src/storage/backup.ts'
+import { createAlbum } from '../../src/storage/albums.ts'
 import { deleteAllPhotos, getMaster, listMeta, putPhoto, type PhotoWrite } from '../../src/storage/photos.ts'
 import { createZip, readZip, type Bytes } from '../../src/storage/zip.ts'
 
@@ -26,13 +32,20 @@ function pixels(seed: number, length = 512): ArrayBuffer {
   return out.buffer
 }
 
-function makeWrite(dayKey: string, capturedAt: number, seed: number): PhotoWrite {
+function makeWrite(
+  dayKey: string,
+  capturedAt: number,
+  seed: number,
+  albumId: string = DEFAULT_ALBUM_ID,
+): PhotoWrite {
   const id = newPhotoId(capturedAt)
   const master = pixels(seed)
   const meta: PhotoMeta = {
     id,
+    albumId,
     dayKey,
     capturedAt,
+    timeZone: 'America/Los_Angeles',
     tzOffsetMinutes: -420,
     width: 1080,
     height: 1440,
@@ -41,6 +54,7 @@ function makeWrite(dayKey: string, capturedAt: number, seed: number): PhotoWrite
     source: 'camera',
     masterBytes: master.byteLength,
     thumbBytes: 16,
+    deletedAt: null,
     schema: SCHEMA_VERSION,
   }
   return {
@@ -103,6 +117,23 @@ describe('backup export', () => {
     const files = readZip(await bytesOf(blob))
     const exported = [...files.entries()].find(([name]) => name.startsWith('photos/'))![1]
     expect([...exported]).toEqual([...new Uint8Array(write!.master.bytes)])
+  })
+
+  it('preserves albums when two journeys have a photo on the same day', async () => {
+    const physique = await createAlbum('Physique', 'America/New_York', 100)
+    const at = Date.parse('2026-08-09T18:00:00Z')
+    await putPhoto(makeWrite('2026-08-09', at, 1))
+    await putPhoto(makeWrite('2026-08-09', at + 1, 2, physique.id))
+
+    const { blob, manifest } = await exportBackup()
+    expect(manifest.albums.map((album) => album.name)).toEqual(['Selfies', 'Physique'])
+    expect(new Set(manifest.photos.map((photo) => photo.albumId))).toEqual(
+      new Set([DEFAULT_ALBUM_ID, physique.id]),
+    )
+
+    const files = [...readZip(await bytesOf(blob)).keys()].filter((name) => name.startsWith('photos/'))
+    expect(files).toHaveLength(2)
+    expect(new Set(files.map((name) => name.split('/')[1]))).toEqual(new Set(['selfies', 'physique']))
   })
 })
 

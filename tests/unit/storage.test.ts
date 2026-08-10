@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { dayKeyOf } from '../../src/core/day.ts'
 import { newPhotoId } from '../../src/core/id.ts'
-import { SCHEMA_VERSION, type PhotoMeta } from '../../src/core/types.ts'
+import { DEFAULT_ALBUM_ID, SCHEMA_VERSION, type PhotoMeta } from '../../src/core/types.ts'
 import {
   deleteAllPhotos,
   deletePhoto,
@@ -30,8 +30,10 @@ function makeWrite(dayKey: string, capturedAt: number, opts: Partial<PhotoMeta> 
   const id = opts.id ?? newPhotoId(capturedAt)
   const meta: PhotoMeta = {
     id,
+    albumId: DEFAULT_ALBUM_ID,
     dayKey,
     capturedAt,
+    timeZone: 'UTC',
     tzOffsetMinutes: 0,
     width: 1080,
     height: 1440,
@@ -40,6 +42,7 @@ function makeWrite(dayKey: string, capturedAt: number, opts: Partial<PhotoMeta> 
     source: 'camera',
     masterBytes: 1000,
     thumbBytes: 100,
+    deletedAt: null,
     schema: SCHEMA_VERSION,
     ...opts,
   }
@@ -97,6 +100,23 @@ describe('photo repository', () => {
     expect(await getMaster(first.meta.id)).toBeNull()
     expect(await getThumb(first.meta.id)).toBeNull()
     expect((await listMeta()).filter((m) => m.dayKey === '2026-08-09')).toHaveLength(1)
+  })
+
+  it('keeps same-day photos in different albums', async () => {
+    const capturedAt = Date.parse('2026-08-09T10:00:00Z')
+    const face = makeWrite('2026-08-09', capturedAt, {
+      albumId: 'face',
+    })
+    const physique = makeWrite('2026-08-09', capturedAt + 1, {
+      albumId: 'physique',
+    })
+
+    await putPhoto(face)
+    await putPhoto(physique)
+
+    expect(await listMeta()).toHaveLength(2)
+    expect(await getMaster(face.meta.id)).not.toBeNull()
+    expect(await getMaster(physique.meta.id)).not.toBeNull()
   })
 
   it('re-derives the ghost after the newest photo is deleted', async () => {

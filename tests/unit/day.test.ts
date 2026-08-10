@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { addDays, currentStreak, dayKeyOf, daysBetween, formatDayLabel, isDayKey } from '../../src/core/day.ts'
+import {
+  addDays,
+  currentStreak,
+  dayKeyOf,
+  daysBetween,
+  formatDayLabel,
+  isDayKey,
+  isValidTimeZone,
+  resolvedTimeZone,
+  timeZoneOffsetMinutes,
+} from '../../src/core/day.ts'
 
 describe('dayKeyOf', () => {
   it('uses local time, not UTC', () => {
@@ -18,6 +28,23 @@ describe('dayKeyOf', () => {
       dayKeyOf(new Date(2026, 8, 30)),
     ]
     expect([...keys].sort()).toEqual(['2026-01-05', '2026-09-30', '2026-11-02'])
+  })
+
+  it('uses an album timezone when one is supplied', () => {
+    const instant = new Date('2026-08-09T16:30:00Z')
+    expect(dayKeyOf(instant, 'Asia/Tokyo')).toBe('2026-08-10')
+    expect(dayKeyOf(instant, 'America/Los_Angeles')).toBe('2026-08-09')
+  })
+
+  it('reports the correct offset for the album timezone', () => {
+    const instant = new Date('2026-08-09T16:30:00Z')
+    expect(timeZoneOffsetMinutes(instant, 'Asia/Tokyo')).toBe(-540)
+    expect(timeZoneOffsetMinutes(instant, 'America/Los_Angeles')).toBe(420)
+  })
+
+  it('detects a valid system timezone', () => {
+    expect(isValidTimeZone(resolvedTimeZone())).toBe(true)
+    expect(isValidTimeZone('Moon/Sea_of_Tranquility')).toBe(false)
   })
 })
 

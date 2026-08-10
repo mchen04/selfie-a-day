@@ -1,7 +1,7 @@
-import type { PhotoMeta, StoredImage } from '../core/types.ts'
+import { DEFAULT_ALBUM_ID, SCHEMA_VERSION, type PhotoMeta, type StoredImage } from '../core/types.ts'
 import {
+  INDEX_ALBUM_DAY,
   INDEX_CAPTURED_AT,
-  INDEX_DAY,
   STORE_MASTERS,
   STORE_META,
   STORE_PHOTOS,
@@ -18,12 +18,40 @@ export interface PhotoWrite {
 
 const ALL_PHOTO_STORES = [STORE_PHOTOS, STORE_THUMBS, STORE_MASTERS]
 
-/** Every photo's metadata, newest first. */
-export async function listMeta(): Promise<PhotoMeta[]> {
+function normalizeMeta(meta: PhotoMeta): PhotoMeta {
+  return {
+    ...meta,
+    albumId: typeof meta.albumId === 'string' && meta.albumId ? meta.albumId : DEFAULT_ALBUM_ID,
+    timeZone: typeof meta.timeZone === 'string' ? meta.timeZone : null,
+    deletedAt: typeof meta.deletedAt === 'number' ? meta.deletedAt : null,
+    schema: SCHEMA_VERSION,
+  }
+}
+
+/** Photo metadata newest first, optionally scoped to one album or the trash. */
+export async function listMeta(
+  options: { albumId?: string; includeDeleted?: boolean; onlyDeleted?: boolean } = {},
+): Promise<PhotoMeta[]> {
   return withTransaction(STORE_PHOTOS, 'readonly', async (tx) => {
     const index = tx.objectStore(STORE_PHOTOS).index(INDEX_CAPTURED_AT)
     const rows = await promisifyRequest(index.getAll() as IDBRequest<PhotoMeta[]>)
-    return rows.reverse()
+    return rows
+      .reverse()
+      .map(normalizeMeta)
+      .filter((meta) => {
+        if (options.albumId && meta.albumId !== options.albumId) return false
+        if (options.onlyDeleted) return meta.deletedAt !== null
+        return options.includeDeleted || meta.deletedAt === null
+      })
+  })
+}
+
+export async function getMeta(id: string): Promise<PhotoMeta | null> {
+  return withTransaction(STORE_PHOTOS, 'readonly', async (tx) => {
+    const row = await promisifyRequest(
+      tx.objectStore(STORE_PHOTOS).get(id) as IDBRequest<PhotoMeta | undefined>,
+    )
+    return row ? normalizeMeta(row) : null
   })
 }
 
@@ -59,30 +87,32 @@ async function writeInto(
   options: { keepNewer?: boolean } = {},
 ): Promise<boolean> {
   const photos = tx.objectStore(STORE_PHOTOS)
+  const normalized = { ...write, meta: normalizeMeta(write.meta) }
   const existing = (await promisifyRequest(
-    photos.index(INDEX_DAY).getAll(write.meta.dayKey),
+    photos.index(INDEX_ALBUM_DAY).getAll([normalized.meta.albumId, normalized.meta.dayKey]),
   )) as PhotoMeta[]
+  const active = existing.map(normalizeMeta).filter((meta) => meta.deletedAt === null)
 
   // A restore must never overwrite work done after the backup was taken.
   // Deleting one photo asks for a two-tap confirm; a restore could otherwise
   // destroy an unbounded number of them behind a single tap and a green toast.
   if (
     options.keepNewer &&
-    existing.some((e) => e.id !== write.meta.id && e.capturedAt > write.meta.capturedAt)
+    active.some((e) => e.id !== normalized.meta.id && e.capturedAt > normalized.meta.capturedAt)
   ) {
     return false
   }
 
-  for (const previous of existing) {
-    if (previous.id === write.meta.id) continue
+  for (const previous of active) {
+    if (previous.id === normalized.meta.id) continue
     photos.delete(previous.id)
     tx.objectStore(STORE_THUMBS).delete(previous.id)
     tx.objectStore(STORE_MASTERS).delete(previous.id)
   }
 
-  photos.put(write.meta)
-  tx.objectStore(STORE_THUMBS).put(write.thumb)
-  tx.objectStore(STORE_MASTERS).put(write.master)
+  photos.put(normalized.meta)
+  tx.objectStore(STORE_THUMBS).put(normalized.thumb)
+  tx.objectStore(STORE_MASTERS).put(normalized.master)
   return true
 }
 

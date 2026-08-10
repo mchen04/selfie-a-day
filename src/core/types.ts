@@ -1,7 +1,10 @@
 import type { DayKey } from './day.ts'
 
 /** Bumped only when the *shape* of a stored record changes. See storage/db.ts. */
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
+
+/** Stable home for every photo created before albums existed. */
+export const DEFAULT_ALBUM_ID = 'selfies'
 
 export type CaptureSource = 'camera' | 'file'
 
@@ -14,8 +17,12 @@ export type CaptureSource = 'camera' | 'file'
 export interface PhotoMeta {
   /** Sortable, collision-resistant. Lexicographic order === capture order. */
   id: string
+  /** The journey this photo belongs to. */
+  albumId: string
   dayKey: DayKey
   capturedAt: number
+  /** IANA timezone used to decide `dayKey`; null only for legacy imports. */
+  timeZone: string | null
   /** Minutes returned by `Date.prototype.getTimezoneOffset` at capture time. */
   tzOffsetMinutes: number
   width: number
@@ -32,6 +39,19 @@ export interface PhotoMeta {
   /** Byte sizes, so Settings can report storage usage without loading pixels. */
   masterBytes: number
   thumbBytes: number
+  /** Soft deletion timestamp. Null means the photo is in its album. */
+  deletedAt: number | null
+  schema: number
+}
+
+export interface Album {
+  id: string
+  name: string
+  /** Null follows the device timezone; an IANA name pins this album. */
+  timeZone: string | null
+  createdAt: number
+  updatedAt: number
+  deletedAt: number | null
   schema: number
 }
 
@@ -69,6 +89,8 @@ export interface Settings {
    * the loudest complaint in this whole app category.
    */
   lastExportAt: number | null
+  /** The album capture and timeline currently point at. */
+  activeAlbumId: string
   schema: number
 }
 
@@ -80,6 +102,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ghostEnabled: true,
   onboardingCompleteAt: null,
   lastExportAt: null,
+  activeAlbumId: DEFAULT_ALBUM_ID,
   schema: SCHEMA_VERSION,
 }
 

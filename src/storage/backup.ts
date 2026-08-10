@@ -1,6 +1,14 @@
-import { isDayKey } from '../core/day.ts'
-import { isPhotoId, newPhotoId } from '../core/id.ts'
-import { SCHEMA_VERSION, type PhotoMeta, type StoredImage } from '../core/types.ts'
+import { defaultAlbum } from '../core/albums.ts'
+import { isDayKey, isValidTimeZone } from '../core/day.ts'
+import { isAlbumId, isPhotoId, newPhotoId } from '../core/id.ts'
+import {
+  DEFAULT_ALBUM_ID,
+  SCHEMA_VERSION,
+  type Album,
+  type PhotoMeta,
+  type StoredImage,
+} from '../core/types.ts'
+import { ensureAlbums, listAlbums } from './albums.ts'
 import { getMaster, listMeta, putPhotos, type PhotoWrite } from './photos.ts'
 import {
   createZip,
@@ -14,7 +22,7 @@ import {
 } from './zip.ts'
 
 export const BACKUP_FORMAT = 'selfie-a-day/backup'
-export const BACKUP_FORMAT_VERSION = 1
+export const BACKUP_FORMAT_VERSION = 2
 
 const MANIFEST_NAME = 'manifest.json'
 const README_NAME = 'README.txt'
@@ -28,8 +36,10 @@ const EXTENSIONS: Record<string, string> = {
 
 export interface BackupManifestEntry {
   id: string
+  albumId?: string
   dayKey: string
   capturedAt: number
+  timeZone?: string | null
   tzOffsetMinutes: number
   width: number
   height: number
@@ -45,6 +55,7 @@ export interface BackupManifest {
   schema: number
   exportedAt: number
   photoCount: number
+  albums: Album[]
   photos: BackupManifestEntry[]
 }
 
@@ -53,7 +64,7 @@ const README = `Selfie a Day — backup
 
 Everything in this archive came off one device and never touched a server.
 
-  photos/       your photos, one per day, named by the date they were taken.
+  photos/       your photos, grouped by album and named by the date they were taken.
                 These are ordinary image files. You can open, copy, print or
                 keep them without this app, forever.
   manifest.json the capture time, timezone and orientation of each photo, so
@@ -67,6 +78,16 @@ If this app ever disappears, the photos/ folder is still just your photos.
 
 function extensionFor(mime: string): string {
   return EXTENSIONS[mime] ?? 'bin'
+}
+
+function pathSegment(name: string): string {
+  const safe = name
+    .normalize('NFKD')
+    .replace(/[^\w\s-]/g, '')
+    .trim()
+    .replace(/[\s_]+/g, '-')
+    .toLowerCase()
+  return safe || 'album'
 }
 
 /**
@@ -85,20 +106,24 @@ function extensionFor(mime: string): string {
 export async function exportBackup(
   onProgress?: (done: number, total: number) => void,
 ): Promise<{ blob: Blob; manifest: BackupManifest }> {
-  const metas = await listMeta()
+  const [metas, albums] = await Promise.all([listMeta(), listAlbums()])
   // Oldest first so the archive reads chronologically in a file browser.
   const ordered = [...metas].reverse()
 
   const entries: ZipEntry[] = []
   const manifestPhotos: BackupManifestEntry[] = []
   const usedNames = new Set<string>()
+  const albumNames = new Map(albums.map((album) => [album.id, pathSegment(album.name)]))
 
   for (const [index, meta] of ordered.entries()) {
     const master = await getMaster(meta.id)
     if (!master) continue // Metadata without pixels cannot be restored; skip it.
 
-    let name = `${PHOTO_DIR}${meta.dayKey}.${extensionFor(meta.mime)}`
-    if (usedNames.has(name)) name = `${PHOTO_DIR}${meta.dayKey}-${meta.id}.${extensionFor(meta.mime)}`
+    const albumPath = albumNames.get(meta.albumId) ?? 'selfies'
+    let name = `${PHOTO_DIR}${albumPath}/${meta.dayKey}.${extensionFor(meta.mime)}`
+    if (usedNames.has(name)) {
+      name = `${PHOTO_DIR}${albumPath}/${meta.dayKey}-${meta.id}.${extensionFor(meta.mime)}`
+    }
     usedNames.add(name)
 
     // Checksum now, while the bytes are here, then hand them to a Blob and let
@@ -113,8 +138,10 @@ export async function exportBackup(
     })
     manifestPhotos.push({
       id: meta.id,
+      albumId: meta.albumId,
       dayKey: meta.dayKey,
       capturedAt: meta.capturedAt,
+      timeZone: meta.timeZone,
       tzOffsetMinutes: meta.tzOffsetMinutes,
       width: meta.width,
       height: meta.height,
@@ -133,6 +160,7 @@ export async function exportBackup(
     schema: SCHEMA_VERSION,
     exportedAt: Date.now(),
     photoCount: manifestPhotos.length,
+    albums,
     photos: manifestPhotos,
   }
 
@@ -184,6 +212,19 @@ function isValidEntry(value: unknown): value is BackupManifestEntry {
   )
 }
 
+function isValidAlbum(value: unknown): value is Album {
+  if (typeof value !== 'object' || value === null) return false
+  const album = value as Record<string, unknown>
+  return (
+    isAlbumId(album.id) &&
+    typeof album.name === 'string' &&
+    album.name.trim().length > 0 &&
+    (album.timeZone === null || isValidTimeZone(album.timeZone)) &&
+    typeof album.createdAt === 'number' &&
+    Number.isFinite(album.createdAt)
+  )
+}
+
 /** In-memory parse. Convenient for small archives and for tests. */
 export function parseBackup(bytes: Bytes): ParsedBackup {
   let files: Map<string, Bytes>
@@ -218,15 +259,32 @@ function buildManifest(manifest: Partial<BackupManifest>): {
   manifest: BackupManifest
   rejected: number
 } {
-  const photos = (manifest.photos ?? []).filter(isValidEntry)
+  const albums: Album[] = (manifest.albums ?? []).filter(isValidAlbum).map((album) => ({
+    ...album,
+    updatedAt: Number.isFinite(album.updatedAt) ? album.updatedAt : album.createdAt,
+    deletedAt: null,
+    schema: SCHEMA_VERSION,
+  }))
+  if (albums.length === 0) albums.push(defaultAlbum())
+  const albumIds = new Set(albums.map((album) => album.id))
+  const validPhotos = (manifest.photos ?? []).filter(isValidEntry)
+  const photos = validPhotos.map((photo) => ({
+    ...photo,
+    albumId:
+      typeof photo.albumId === 'string' && albumIds.has(photo.albumId)
+        ? photo.albumId
+        : DEFAULT_ALBUM_ID,
+    timeZone: typeof photo.timeZone === 'string' && isValidTimeZone(photo.timeZone) ? photo.timeZone : null,
+  }))
   return {
-    rejected: (manifest.photos ?? []).length - photos.length,
+    rejected: (manifest.photos ?? []).length - validPhotos.length,
     manifest: {
       format: BACKUP_FORMAT,
       formatVersion: manifest.formatVersion ?? BACKUP_FORMAT_VERSION,
       schema: typeof manifest.schema === 'number' ? manifest.schema : SCHEMA_VERSION,
       exportedAt: typeof manifest.exportedAt === 'number' ? manifest.exportedAt : Date.now(),
       photoCount: photos.length,
+      albums,
       photos,
     },
   }
@@ -317,6 +375,8 @@ export async function importBackup(
   const total = parsed.manifest.photos.length
   let batch: PhotoWrite[] = []
 
+  await ensureAlbums(parsed.manifest.albums)
+
   if (parsed.rejected > 0) {
     skipped += parsed.rejected
     problems.push(
@@ -372,8 +432,13 @@ export async function importBackup(
 
       const meta: PhotoMeta = {
         id,
+        albumId: entry.albumId ?? DEFAULT_ALBUM_ID,
         dayKey: entry.dayKey,
         capturedAt: entry.capturedAt,
+        timeZone:
+          typeof entry.timeZone === 'string' && isValidTimeZone(entry.timeZone)
+            ? entry.timeZone
+            : null,
         tzOffsetMinutes: entry.tzOffsetMinutes ?? 0,
         width: entry.width,
         height: entry.height,
@@ -382,6 +447,7 @@ export async function importBackup(
         source: entry.source === 'file' ? 'file' : 'camera',
         masterBytes: masterBytes.byteLength,
         thumbBytes: thumb.bytes.byteLength,
+        deletedAt: null,
         schema: SCHEMA_VERSION,
       }
 

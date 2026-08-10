@@ -18,6 +18,7 @@ describe('coerceSettings', () => {
       ghostEnabled: false,
       onboardingCompleteAt: 1_700_000_000_000,
       lastExportAt: 1_700_000_100_000,
+      activeAlbumId: 'album-0000000001abcdefghij',
       schema: 1,
     }
     expect(coerceSettings(stored)).toEqual({ ...stored, schema: SCHEMA_VERSION })
