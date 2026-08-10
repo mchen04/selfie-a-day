@@ -138,3 +138,10 @@ export const IconCheck = (p: IconProps) => (
     <path d="m5 12 4 4L19 6" />
   </Icon>
 )
+
+export const IconRestore = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 9V4m0 0h5M4 4l4 4" />
+    <path d="M5.5 14a7 7 0 1 0 1.7-7.3" />
+  </Icon>
+)

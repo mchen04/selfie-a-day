@@ -14,6 +14,7 @@ export type Route =
   | { name: 'timeline' }
   | { name: 'photo'; id: string }
   | { name: 'settings' }
+  | { name: 'trash' }
 
 export function parseRoute(pathname: string): Route {
   const segments = pathname.replace(/^\/+|\/+$/g, '').split('/')
@@ -22,6 +23,8 @@ export function parseRoute(pathname: string): Route {
       return { name: 'timeline' }
     case 'settings':
       return { name: 'settings' }
+    case 'trash':
+      return { name: 'trash' }
     case 'photo':
       return segments[1] ? { name: 'photo', id: segments[1] } : { name: 'timeline' }
     default:
@@ -35,6 +38,8 @@ export function routeToPath(route: Route): string {
       return '/timeline'
     case 'settings':
       return '/settings'
+    case 'trash':
+      return '/trash'
     case 'photo':
       return `/photo/${route.id}`
     case 'capture':

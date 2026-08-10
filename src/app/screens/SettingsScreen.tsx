@@ -17,13 +17,14 @@ import {
 } from '../components/Icons.tsx'
 import { Toast } from '../components/Toast.tsx'
 import { useToast } from '../useToast.ts'
-import { goBack } from '../router.ts'
+import { goBack, useNavigate } from '../router.ts'
 import { useApp } from '../store-context.ts'
 
 const APP_VERSION = __APP_VERSION__
 
 export function SettingsScreen() {
-  const { allMetas, albums, activeAlbum, settings, actions } = useApp()
+  const { allMetas, trashedMetas, albums, activeAlbum, settings, actions } = useApp()
+  const navigate = useNavigate()
   const { toast, show } = useToast()
   const [storage, setStorage] = useState<StorageStatus | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -44,7 +45,10 @@ export function SettingsScreen() {
 
   useEffect(refreshStorage, [refreshStorage])
 
-  const storedBytes = allMetas.reduce((sum, m) => sum + m.masterBytes + m.thumbBytes, 0)
+  const storedBytes = [...allMetas, ...trashedMetas].reduce(
+    (sum, meta) => sum + meta.masterBytes + meta.thumbBytes,
+    0,
+  )
   const systemTimeZone = resolvedTimeZone()
   const timeZones = useMemo(() => supportedTimeZones(activeAlbum.timeZone), [activeAlbum.timeZone])
   const albumForm =
@@ -342,8 +346,8 @@ export function SettingsScreen() {
               <dd>{formatBytes(storedBytes)}</dd>
             </div>
             <div>
-              <dt>Browser reports</dt>
-              <dd>{storage ? formatBytes(storage.usageBytes) : '…'}</dd>
+              <dt>In Trash</dt>
+              <dd>{trashedMetas.length}</dd>
             </div>
             <div>
               <dt>Kept permanently</dt>
@@ -376,6 +380,22 @@ export function SettingsScreen() {
               </button>
             </>
           ) : null}
+        </section>
+
+        <section className="card stack">
+          <h2 className="section__title">Trash</h2>
+          <p className="tiny muted">
+            Removed photos stay recoverable for 30 days, then their stored image is deleted.
+          </p>
+          <button
+            type="button"
+            className="btn btn--wide"
+            onClick={() => navigate({ name: 'trash' })}
+            data-testid="review-trash"
+          >
+            <IconTrash size={18} /> Review Trash
+            {trashedMetas.length > 0 ? ` (${trashedMetas.length})` : ''}
+          </button>
         </section>
 
         <section className="card stack">
@@ -455,11 +475,13 @@ export function SettingsScreen() {
             type="button"
             className="btn btn--danger btn--wide"
             onClick={() => void onWipe()}
-            disabled={busy !== null || allMetas.length === 0}
+            disabled={busy !== null || allMetas.length + trashedMetas.length === 0}
             data-testid="delete-all"
           >
             <IconTrash size={18} />
-            {confirmWipe ? `Really delete all ${allMetas.length}? Tap again` : 'Delete all photos'}
+            {confirmWipe
+              ? `Really delete all ${allMetas.length + trashedMetas.length}? Tap again`
+              : 'Delete all photos'}
           </button>
         </section>
       </div>

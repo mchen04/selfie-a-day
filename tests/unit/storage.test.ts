@@ -5,11 +5,15 @@ import { DEFAULT_ALBUM_ID, SCHEMA_VERSION, type PhotoMeta } from '../../src/core
 import {
   deleteAllPhotos,
   deletePhoto,
+  emptyTrash,
   getMaster,
   getThumb,
   listMeta,
+  purgeExpiredTrash,
   putPhoto,
   putPhotos,
+  restorePhoto,
+  trashPhoto,
   type PhotoWrite,
 } from '../../src/storage/photos.ts'
 
@@ -139,6 +143,52 @@ describe('photo repository', () => {
     await deletePhoto(only.meta.id)
     expect(await ghostSource()).toBeNull()
     expect(await listMeta()).toHaveLength(0)
+  })
+
+  it('moves a photo to trash without deleting its pixels and restores it', async () => {
+    const write = makeWrite('2026-08-09', Date.parse('2026-08-09T10:00:00Z'))
+    await putPhoto(write)
+
+    await trashPhoto(write.meta.id, 1_000)
+    expect(await listMeta()).toHaveLength(0)
+    expect(await listMeta({ onlyDeleted: true })).toMatchObject([
+      { id: write.meta.id, deletedAt: 1_000 },
+    ])
+    expect(await getMaster(write.meta.id)).not.toBeNull()
+
+    await restorePhoto(write.meta.id)
+    expect(await listMeta()).toMatchObject([{ id: write.meta.id, deletedAt: null }])
+    expect(await listMeta({ onlyDeleted: true })).toHaveLength(0)
+  })
+
+  it('will not restore over another active photo for the same album day', async () => {
+    const older = makeWrite('2026-08-09', Date.parse('2026-08-09T09:00:00Z'))
+    await putPhoto(older)
+    await trashPhoto(older.meta.id)
+
+    const replacement = makeWrite('2026-08-09', Date.parse('2026-08-09T20:00:00Z'))
+    await putPhoto(replacement)
+
+    await expect(restorePhoto(older.meta.id)).rejects.toThrow(/already has a photo/i)
+    expect((await listMeta())[0]?.id).toBe(replacement.meta.id)
+    expect(await listMeta({ onlyDeleted: true })).toHaveLength(1)
+  })
+
+  it('purges only trash older than 30 days and can empty the rest', async () => {
+    const old = makeWrite('2026-07-01', Date.parse('2026-07-01T10:00:00Z'))
+    const recent = makeWrite('2026-08-01', Date.parse('2026-08-01T10:00:00Z'))
+    await putPhoto(old)
+    await putPhoto(recent)
+    await trashPhoto(old.meta.id, 1_000)
+    await trashPhoto(recent.meta.id, 20 * 86_400_000)
+
+    expect(await purgeExpiredTrash(31 * 86_400_000)).toBe(1)
+    expect(await getMaster(old.meta.id)).toBeNull()
+    expect(await getMaster(recent.meta.id)).not.toBeNull()
+
+    expect(await emptyTrash()).toBe(1)
+    expect(await getMaster(recent.meta.id)).toBeNull()
+    expect(await listMeta({ onlyDeleted: true })).toHaveLength(0)
   })
 
   it('writes a batch atomically', async () => {

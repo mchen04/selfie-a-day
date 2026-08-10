@@ -8,7 +8,15 @@ import {
   listAlbums,
   updateAlbum as updateAlbumRecord,
 } from '../storage/albums.ts'
-import { deletePhoto, listMeta, putPhoto } from '../storage/photos.ts'
+import {
+  deletePhotoPermanently as deletePhotoPermanentlyRecord,
+  emptyTrash as emptyTrashRecords,
+  listMeta,
+  purgeExpiredTrash,
+  putPhoto,
+  restorePhoto as restorePhotoRecord,
+  trashPhoto as trashPhotoRecord,
+} from '../storage/photos.ts'
 import { loadSettings, saveSettings } from '../storage/settings.ts'
 import { AppContext, type AppContextValue, type AppState } from './store-context.ts'
 
@@ -22,6 +30,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     storageError: null,
     metas: [],
     allMetas: [],
+    trashedMetas: [],
+    undoTrash: null,
     albums: [defaultAlbum()],
     activeAlbum: defaultAlbum(),
     settings: DEFAULT_SETTINGS,
@@ -45,8 +55,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const reload = useCallback(async () => {
     try {
-      const [allMetas, loadedAlbums, loadedSettings] = await Promise.all([
+      await purgeExpiredTrash()
+      const [allMetas, trashedMetas, loadedAlbums, loadedSettings] = await Promise.all([
         listMeta(),
+        listMeta({ onlyDeleted: true }),
         listAlbums(),
         loadSettings(),
       ])
@@ -63,6 +75,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         storageError: null,
         metas: activeMetas(allMetas, activeAlbum.id),
         allMetas,
+        trashedMetas,
+        undoTrash: null,
         albums,
         activeAlbum,
         settings,
@@ -95,14 +109,54 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }))
   }, [])
 
-  const removePhoto = useCallback(async (id: string) => {
-    await deletePhoto(id)
-    const allMetas = await listMeta()
+  const trashPhoto = useCallback(async (id: string) => {
+    const trashed = await trashPhotoRecord(id)
+    const [allMetas, trashedMetas] = await Promise.all([
+      listMeta(),
+      listMeta({ onlyDeleted: true }),
+    ])
     setState((prev) => ({
       ...prev,
       metas: activeMetas(allMetas, prev.activeAlbum.id),
       allMetas,
+      trashedMetas,
+      undoTrash: trashed,
     }))
+  }, [])
+
+  const restorePhoto = useCallback(async (id: string) => {
+    await restorePhotoRecord(id)
+    const [allMetas, trashedMetas] = await Promise.all([
+      listMeta(),
+      listMeta({ onlyDeleted: true }),
+    ])
+    setState((prev) => ({
+      ...prev,
+      metas: activeMetas(allMetas, prev.activeAlbum.id),
+      allMetas,
+      trashedMetas,
+      undoTrash: prev.undoTrash?.id === id ? null : prev.undoTrash,
+    }))
+  }, [])
+
+  const deletePhotoPermanently = useCallback(async (id: string) => {
+    await deletePhotoPermanentlyRecord(id)
+    const trashedMetas = await listMeta({ onlyDeleted: true })
+    setState((prev) => ({
+      ...prev,
+      trashedMetas,
+      undoTrash: prev.undoTrash?.id === id ? null : prev.undoTrash,
+    }))
+  }, [])
+
+  const emptyTrash = useCallback(async (): Promise<number> => {
+    const removed = await emptyTrashRecords()
+    setState((prev) => ({ ...prev, trashedMetas: [], undoTrash: null }))
+    return removed
+  }, [])
+
+  const dismissUndo = useCallback(() => {
+    setState((prev) => ({ ...prev, undoTrash: null }))
   }, [])
 
   const updateSettings = useCallback(async (patch: Partial<Settings>) => {
@@ -179,7 +233,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ...state,
       actions: {
         savePhoto,
-        removePhoto,
+        trashPhoto,
+        restorePhoto,
+        deletePhotoPermanently,
+        emptyTrash,
+        dismissUndo,
         selectAlbum,
         createAlbum,
         updateAlbum,
@@ -190,7 +248,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [
       state,
       savePhoto,
-      removePhoto,
+      trashPhoto,
+      restorePhoto,
+      deletePhotoPermanently,
+      emptyTrash,
+      dismissUndo,
       selectAlbum,
       createAlbum,
       updateAlbum,

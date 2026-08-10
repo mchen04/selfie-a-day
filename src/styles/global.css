@@ -264,6 +264,19 @@ canvas {
   background: var(--surface-3);
 }
 
+.topbar__text-action {
+  min-width: var(--tap);
+  min-height: var(--tap);
+  padding: 0 6px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.topbar__text-action[data-danger='true'] {
+  color: var(--danger);
+}
+
 /* --- Buttons -------------------------------------------------------------- */
 
 .btn {

@@ -527,6 +527,35 @@
   color: var(--danger);
 }
 
+.undo-trash {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: calc(var(--safe-top) + 66px);
+  z-index: 46;
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 6px 4px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: rgb(30 30 37 / 98%);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 48%);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.undo-trash__action {
+  min-width: 64px;
+  min-height: var(--tap);
+  padding: 0 12px;
+  border-radius: 999px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
 @keyframes toast-in {
   from {
     opacity: 0;
@@ -671,6 +700,107 @@
 
 .photo__nav .btn {
   flex: 1;
+}
+
+/* --- Trash ---------------------------------------------------------------- */
+
+.trash-screen {
+  padding: 0 calc(var(--safe-right) + 14px) calc(var(--safe-bottom) + 24px)
+    calc(var(--safe-left) + 14px);
+}
+
+.trash-note {
+  margin: 2px 2px 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgb(255 196 107 / 8%);
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.trash-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+
+.trash-item {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.trash-item__photo {
+  width: 78px;
+  aspect-ratio: var(--frame-aspect);
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.trash-item__photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.trash-item__body {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.trash-item__copy {
+  display: flex;
+  flex-direction: column;
+}
+
+.trash-item__copy strong {
+  font-size: 14.5px;
+}
+
+.trash-item__copy span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trash-item__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.trash-item__actions .btn {
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+
+@media (max-width: 350px) {
+  .trash-item {
+    grid-template-columns: 64px 1fr;
+  }
+
+  .trash-item__photo {
+    width: 64px;
+  }
+
+  .trash-item__actions {
+    flex-direction: column;
+  }
 }
 
 /* --- Settings ------------------------------------------------------------- */

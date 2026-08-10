@@ -125,8 +125,9 @@ export async function countPhotos(page: Page): Promise<number> {
     try {
       if (!db.objectStoreNames.contains('photos')) return 0
       return await new Promise<number>((res, rej) => {
-        const req = db.transaction('photos', 'readonly').objectStore('photos').count()
-        req.onsuccess = () => res(req.result)
+        const req = db.transaction('photos', 'readonly').objectStore('photos').getAll()
+        req.onsuccess = () =>
+          res((req.result as Array<{ deletedAt?: number | null }>).filter((row) => row.deletedAt == null).length)
         req.onerror = () => rej(req.error ?? new Error('IndexedDB request failed'))
       })
     } finally {
@@ -149,8 +150,11 @@ export interface StoredPhotoInfo {
   source: 'camera' | 'file'
 }
 
-export async function listStoredPhotos(page: Page): Promise<StoredPhotoInfo[]> {
-  return page.evaluate(async () => {
+export async function listStoredPhotos(
+  page: Page,
+  options: { includeDeleted?: boolean } = {},
+): Promise<StoredPhotoInfo[]> {
+  return page.evaluate(async (includeDeleted) => {
     const db = await new Promise<IDBDatabase>((res, rej) => {
       const req = indexedDB.open('selfie-a-day')
       req.onsuccess = () => res(req.result)
@@ -159,13 +163,16 @@ export async function listStoredPhotos(page: Page): Promise<StoredPhotoInfo[]> {
     try {
       return await new Promise<StoredPhotoInfo[]>((res, rej) => {
         const req = db.transaction('photos', 'readonly').objectStore('photos').getAll()
-        req.onsuccess = () => res(req.result as StoredPhotoInfo[])
+        req.onsuccess = () => {
+          const rows = req.result as StoredPhotoInfo[]
+          res(includeDeleted ? rows : rows.filter((row) => row.deletedAt == null))
+        }
         req.onerror = () => rej(req.error ?? new Error('IndexedDB request failed'))
       })
     } finally {
       db.close()
     }
-  })
+  }, options.includeDeleted === true)
 }
 
 /**

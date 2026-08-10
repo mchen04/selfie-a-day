@@ -17,6 +17,7 @@ export interface PhotoWrite {
 }
 
 const ALL_PHOTO_STORES = [STORE_PHOTOS, STORE_THUMBS, STORE_MASTERS]
+export const TRASH_RETENTION_MS = 30 * 86_400_000
 
 function normalizeMeta(meta: PhotoMeta): PhotoMeta {
   return {
@@ -35,7 +36,7 @@ export async function listMeta(
   return withTransaction(STORE_PHOTOS, 'readonly', async (tx) => {
     const index = tx.objectStore(STORE_PHOTOS).index(INDEX_CAPTURED_AT)
     const rows = await promisifyRequest(index.getAll() as IDBRequest<PhotoMeta[]>)
-    return rows
+    const filtered = rows
       .reverse()
       .map(normalizeMeta)
       .filter((meta) => {
@@ -43,6 +44,10 @@ export async function listMeta(
         if (options.onlyDeleted) return meta.deletedAt !== null
         return options.includeDeleted || meta.deletedAt === null
       })
+    if (options.onlyDeleted) {
+      filtered.sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0))
+    }
+    return filtered
   })
 }
 
@@ -144,9 +149,74 @@ export async function putPhotos(
 
 export async function deletePhoto(id: string): Promise<void> {
   return withTransaction(ALL_PHOTO_STORES, 'readwrite', (tx) => {
-    tx.objectStore(STORE_PHOTOS).delete(id)
-    tx.objectStore(STORE_THUMBS).delete(id)
-    tx.objectStore(STORE_MASTERS).delete(id)
+    deletePermanentlyIn(tx, id)
+  })
+}
+
+function deletePermanentlyIn(tx: IDBTransaction, id: string): void {
+  tx.objectStore(STORE_PHOTOS).delete(id)
+  tx.objectStore(STORE_THUMBS).delete(id)
+  tx.objectStore(STORE_MASTERS).delete(id)
+}
+
+export async function trashPhoto(id: string, deletedAt: number = Date.now()): Promise<PhotoMeta> {
+  return withTransaction(STORE_PHOTOS, 'readwrite', async (tx) => {
+    const store = tx.objectStore(STORE_PHOTOS)
+    const row = await promisifyRequest(store.get(id) as IDBRequest<PhotoMeta | undefined>)
+    if (!row) throw new Error('That photo no longer exists.')
+    const meta = { ...normalizeMeta(row), deletedAt }
+    store.put(meta)
+    return meta
+  })
+}
+
+export async function restorePhoto(id: string): Promise<PhotoMeta> {
+  return withTransaction(STORE_PHOTOS, 'readwrite', async (tx) => {
+    const store = tx.objectStore(STORE_PHOTOS)
+    const row = await promisifyRequest(store.get(id) as IDBRequest<PhotoMeta | undefined>)
+    if (!row) throw new Error('That photo is no longer in Trash.')
+    const meta = normalizeMeta(row)
+    if (meta.deletedAt === null) return meta
+
+    const sameDay = (await promisifyRequest(
+      store.index(INDEX_ALBUM_DAY).getAll([meta.albumId, meta.dayKey]),
+    )) as PhotoMeta[]
+    if (sameDay.some((photo) => photo.id !== id && normalizeMeta(photo).deletedAt === null)) {
+      throw new Error('This album already has a photo for that day. Move it to Trash first.')
+    }
+
+    const restored = { ...meta, deletedAt: null }
+    store.put(restored)
+    return restored
+  })
+}
+
+export async function deletePhotoPermanently(id: string): Promise<void> {
+  await deletePhoto(id)
+}
+
+export async function emptyTrash(): Promise<number> {
+  return withTransaction(ALL_PHOTO_STORES, 'readwrite', async (tx) => {
+    const rows = (await promisifyRequest(
+      tx.objectStore(STORE_PHOTOS).getAll() as IDBRequest<PhotoMeta[]>,
+    ))
+      .map(normalizeMeta)
+      .filter((meta) => meta.deletedAt !== null)
+    for (const meta of rows) deletePermanentlyIn(tx, meta.id)
+    return rows.length
+  })
+}
+
+export async function purgeExpiredTrash(now: number = Date.now()): Promise<number> {
+  const cutoff = now - TRASH_RETENTION_MS
+  return withTransaction(ALL_PHOTO_STORES, 'readwrite', async (tx) => {
+    const rows = (await promisifyRequest(
+      tx.objectStore(STORE_PHOTOS).getAll() as IDBRequest<PhotoMeta[]>,
+    ))
+      .map(normalizeMeta)
+      .filter((meta) => meta.deletedAt !== null && meta.deletedAt <= cutoff)
+    for (const meta of rows) deletePermanentlyIn(tx, meta.id)
+    return rows.length
   })
 }
 
