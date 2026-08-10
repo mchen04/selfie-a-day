@@ -32,4 +32,9 @@ describe('album repository', () => {
     await expect(createAlbum('   ')).rejects.toThrow(/name/i)
     await expect(createAlbum('Face', 'Moon/Sea_of_Tranquility')).rejects.toThrow(/timezone/i)
   })
+
+  it('rejects duplicate names without caring about case', async () => {
+    await createAlbum('Physique')
+    await expect(createAlbum(' physique ')).rejects.toThrow(/already exists/i)
+  })
 })

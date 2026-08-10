@@ -137,7 +137,10 @@ export async function countPhotos(page: Page): Promise<number> {
 
 export interface StoredPhotoInfo {
   id: string
+  albumId?: string
   dayKey: string
+  timeZone?: string | null
+  deletedAt?: number | null
   width: number
   height: number
   mime: string

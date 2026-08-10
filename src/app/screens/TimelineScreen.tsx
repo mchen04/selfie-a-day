@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from 'react'
 import { dayKeyToDate, formatDayLabel } from '../../core/day.ts'
 import type { PhotoMeta } from '../../core/types.ts'
-import { IconBack, IconCamera, IconPlay } from '../components/Icons.tsx'
+import { AlbumPicker } from '../components/AlbumPicker.tsx'
+import { IconBack, IconCamera, IconChevronDown, IconPlay } from '../components/Icons.tsx'
 import { Playback } from '../components/Playback.tsx'
 import { goBack, useNavigate } from '../router.ts'
 import { useApp } from '../store-context.ts'
@@ -37,10 +38,11 @@ function groupByMonth(metas: readonly PhotoMeta[]): MonthGroup[] {
 }
 
 export function TimelineScreen() {
-  const { metas, status } = useApp()
+  const { metas, allMetas, albums, activeAlbum, actions, status } = useApp()
   const navigate = useNavigate()
   const groups = useMemo(() => groupByMonth(metas), [metas])
   const [playing, setPlaying] = useState(false)
+  const [choosingAlbum, setChoosingAlbum] = useState(false)
 
   // Two photos is the minimum where a timelapse means anything.
   const canPlay = metas.length >= 2
@@ -59,12 +61,20 @@ export function TimelineScreen() {
         >
           <IconBack />
         </button>
-        <div className="topbar__title">
-          Timeline
+        <button
+          type="button"
+          className="topbar__title topbar__album"
+          onClick={() => setChoosingAlbum(true)}
+          aria-label={`Choose album. ${activeAlbum.name} selected`}
+          data-testid="timeline-album-picker"
+        >
+          <span className="topbar__album-line">
+            {activeAlbum.name} <IconChevronDown size={16} />
+          </span>
           <span className="topbar__sub" data-testid="timeline-count">
             {metas.length} photo{metas.length === 1 ? '' : 's'}
           </span>
-        </div>
+        </button>
         {canPlay ? (
           <button
             type="button"
@@ -86,7 +96,7 @@ export function TimelineScreen() {
             <IconCamera size={30} />
             <p className="empty__title">No photos yet</p>
             <p className="empty__body muted">
-              Your first selfie becomes the ghost you line up against tomorrow.
+              The first photo in this album becomes the ghost you line up against next time.
             </p>
             <button
               type="button"
@@ -120,6 +130,19 @@ export function TimelineScreen() {
           ))
         )}
       </div>
+
+      {choosingAlbum ? (
+        <AlbumPicker
+          albums={albums}
+          photos={allMetas}
+          activeAlbumId={activeAlbum.id}
+          onSelect={actions.selectAlbum}
+          onCreate={async (name) => {
+            await actions.createAlbum(name)
+          }}
+          onClose={() => setChoosingAlbum(false)}
+        />
+      ) : null}
     </div>
   )
 }

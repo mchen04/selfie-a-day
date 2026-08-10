@@ -34,10 +34,10 @@ export function OnboardingScreen() {
           <span className="onboarding__dot" />
         </div>
 
-        <h1 className="onboarding__title">One selfie a day</h1>
+        <h1 className="onboarding__title">One photo a day, per album</h1>
         <p className="onboarding__lede">
-          Line your face up with a faint ghost of your last photo, tap once, and watch yourself
-          change over months instead of jumping around.
+          Keep separate journeys for your face, physique, or anything else. A faint ghost keeps
+          every photo lined up so the change is easy to see.
         </p>
 
         <ul className="onboarding__points">

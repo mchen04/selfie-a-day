@@ -1,11 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { makeThumbnail } from '../../camera/encode.ts'
 import { isStandalone } from '../../camera/support.ts'
+import { resolvedTimeZone } from '../../core/day.ts'
 import { CAPTURE_QUALITY_PRESETS } from '../../core/types.ts'
 import { backupFilename, exportBackup, importBackup, parseBackupFile } from '../../storage/backup.ts'
 import { deleteAllPhotos } from '../../storage/photos.ts'
 import { formatBytes, getStorageStatus, requestPersistence, type StorageStatus } from '../../storage/persistence.ts'
-import { IconBack, IconExport, IconImport, IconShield, IconTrash } from '../components/Icons.tsx'
+import { AlbumPicker } from '../components/AlbumPicker.tsx'
+import {
+  IconBack,
+  IconChevronDown,
+  IconExport,
+  IconImport,
+  IconShield,
+  IconTrash,
+} from '../components/Icons.tsx'
 import { Toast } from '../components/Toast.tsx'
 import { useToast } from '../useToast.ts'
 import { goBack } from '../router.ts'
@@ -14,12 +23,18 @@ import { useApp } from '../store-context.ts'
 const APP_VERSION = __APP_VERSION__
 
 export function SettingsScreen() {
-  const { metas, settings, actions } = useApp()
+  const { allMetas, albums, activeAlbum, settings, actions } = useApp()
   const { toast, show } = useToast()
   const [storage, setStorage] = useState<StorageStatus | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [progress, setProgress] = useState<string | null>(null)
   const [confirmWipe, setConfirmWipe] = useState(false)
+  const [choosingAlbum, setChoosingAlbum] = useState(false)
+  const [albumDraft, setAlbumDraft] = useState({
+    id: activeAlbum.id,
+    name: activeAlbum.name,
+    timeZone: activeAlbum.timeZone ?? '',
+  })
   const [importProblems, setImportProblems] = useState<string[]>([])
   const importRef = useRef<HTMLInputElement | null>(null)
 
@@ -29,10 +44,16 @@ export function SettingsScreen() {
 
   useEffect(refreshStorage, [refreshStorage])
 
-  const storedBytes = metas.reduce((sum, m) => sum + m.masterBytes + m.thumbBytes, 0)
+  const storedBytes = allMetas.reduce((sum, m) => sum + m.masterBytes + m.thumbBytes, 0)
+  const systemTimeZone = resolvedTimeZone()
+  const timeZones = useMemo(() => supportedTimeZones(activeAlbum.timeZone), [activeAlbum.timeZone])
+  const albumForm =
+    albumDraft.id === activeAlbum.id
+      ? albumDraft
+      : { id: activeAlbum.id, name: activeAlbum.name, timeZone: activeAlbum.timeZone ?? '' }
 
   const onExport = useCallback(async () => {
-    if (metas.length === 0) {
+    if (allMetas.length === 0) {
       show('There are no photos to back up yet.', 'error')
       return
     }
@@ -88,7 +109,22 @@ export function SettingsScreen() {
       setBusy(null)
       setProgress(null)
     }
-  }, [actions, metas.length, show])
+  }, [actions, allMetas.length, show])
+
+  const onSaveAlbum = useCallback(async () => {
+    setBusy('album')
+    try {
+      await actions.updateAlbum(activeAlbum.id, {
+        name: albumForm.name,
+        timeZone: albumForm.timeZone || null,
+      })
+      show('Album settings saved.', 'success')
+    } catch (err) {
+      show(err instanceof Error ? err.message : 'The album could not be updated.', 'error')
+    } finally {
+      setBusy(null)
+    }
+  }, [actions, activeAlbum.id, albumForm.name, albumForm.timeZone, show])
 
   const onImportFile = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -178,6 +214,64 @@ export function SettingsScreen() {
 
       <div className="screen__scroll settings">
         <section className="card stack">
+          <h2 className="section__title">Active album</h2>
+          <button
+            type="button"
+            className="album-settings__switch"
+            onClick={() => setChoosingAlbum(true)}
+            data-testid="settings-album-picker"
+          >
+            <span>
+              <strong>{activeAlbum.name}</strong>
+              <small>{allMetas.filter((photo) => photo.albumId === activeAlbum.id).length} photos</small>
+            </span>
+            <span className="album-settings__switch-action">
+              Switch <IconChevronDown size={16} />
+            </span>
+          </button>
+
+          <label className="field">
+            <span className="field__label">Album name</span>
+            <input
+              className="text-input"
+              value={albumForm.name}
+              onChange={(event) => setAlbumDraft({ ...albumForm, name: event.target.value })}
+              maxLength={40}
+              data-testid="album-name-input"
+            />
+          </label>
+
+          <label className="field">
+            <span className="field__label">Day timezone</span>
+            <select
+              className="select-input"
+              value={albumForm.timeZone}
+              onChange={(event) => setAlbumDraft({ ...albumForm, timeZone: event.target.value })}
+              data-testid="album-timezone-select"
+            >
+              <option value="">Automatic — {systemTimeZone.replaceAll('_', ' ')}</option>
+              {timeZones.map((timeZone) => (
+                <option key={timeZone} value={timeZone}>
+                  {timeZone.replaceAll('_', ' ')}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="tiny muted">
+            This decides when a new day starts for future photos. Existing dates never move.
+          </p>
+          <button
+            type="button"
+            className="btn btn--primary btn--wide"
+            onClick={() => void onSaveAlbum()}
+            disabled={busy !== null || albumForm.name.trim().length === 0}
+            data-testid="save-album-settings"
+          >
+            {busy === 'album' ? 'Saving…' : 'Save album settings'}
+          </button>
+        </section>
+
+        <section className="card stack">
           <h2 className="section__title">Alignment</h2>
 
           <Row label="Ghost strength" hint="How strongly yesterday shows through.">
@@ -241,7 +335,7 @@ export function SettingsScreen() {
           <dl className="facts" data-testid="storage-facts">
             <div>
               <dt>Photos</dt>
-              <dd>{metas.length}</dd>
+              <dd>{allMetas.length}</dd>
             </div>
             <div>
               <dt>Space used</dt>
@@ -361,18 +455,53 @@ export function SettingsScreen() {
             type="button"
             className="btn btn--danger btn--wide"
             onClick={() => void onWipe()}
-            disabled={busy !== null || metas.length === 0}
+            disabled={busy !== null || allMetas.length === 0}
             data-testid="delete-all"
           >
             <IconTrash size={18} />
-            {confirmWipe ? `Really delete all ${metas.length}? Tap again` : 'Delete all photos'}
+            {confirmWipe ? `Really delete all ${allMetas.length}? Tap again` : 'Delete all photos'}
           </button>
         </section>
       </div>
 
       <Toast toast={toast} />
+
+      {choosingAlbum ? (
+        <AlbumPicker
+          albums={albums}
+          photos={allMetas}
+          activeAlbumId={activeAlbum.id}
+          onSelect={actions.selectAlbum}
+          onCreate={async (name) => {
+            await actions.createAlbum(name)
+          }}
+          onClose={() => setChoosingAlbum(false)}
+        />
+      ) : null}
     </div>
   )
+}
+
+function supportedTimeZones(current: string | null): string[] {
+  const extendedIntl = Intl as typeof Intl & {
+    supportedValuesOf?: (key: 'timeZone') => string[]
+  }
+  const fallback = [
+    'UTC',
+    'America/Los_Angeles',
+    'America/Denver',
+    'America/Chicago',
+    'America/New_York',
+    'Europe/London',
+    'Europe/Paris',
+    'Asia/Tokyo',
+    'Asia/Shanghai',
+    'Asia/Kolkata',
+    'Australia/Sydney',
+    'Pacific/Auckland',
+  ]
+  const zones = extendedIntl.supportedValuesOf?.('timeZone') ?? fallback
+  return [...new Set(current ? [current, ...zones] : zones)]
 }
 
 function Row({

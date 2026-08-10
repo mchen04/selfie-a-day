@@ -41,8 +41,17 @@ export async function createAlbum(
   now: number = Date.now(),
 ): Promise<Album> {
   const album = makeAlbum(name, timeZone, now)
-  await withTransaction(STORE_ALBUMS, 'readwrite', (tx) => {
-    tx.objectStore(STORE_ALBUMS).add(album)
+  await withTransaction(STORE_ALBUMS, 'readwrite', async (tx) => {
+    const store = tx.objectStore(STORE_ALBUMS)
+    const existing = await promisifyRequest(store.getAll() as IDBRequest<Album[]>)
+    if (
+      existing.some(
+        (item) => item.deletedAt === null && item.name.toLowerCase() === album.name.toLowerCase(),
+      )
+    ) {
+      throw new Error(`An album named "${album.name}" already exists.`)
+    }
+    store.add(album)
   })
   return album
 }
@@ -61,9 +70,19 @@ export async function updateAlbum(
     if (timeZone !== null && !isValidTimeZone(timeZone)) {
       throw new Error(`"${timeZone}" is not a valid timezone.`)
     }
+    const name = patch.name === undefined ? current.name : cleanAlbumName(patch.name)
+    const existing = await promisifyRequest(store.getAll() as IDBRequest<Album[]>)
+    if (
+      existing.some(
+        (item) =>
+          item.id !== id && item.deletedAt === null && item.name.toLowerCase() === name.toLowerCase(),
+      )
+    ) {
+      throw new Error(`An album named "${name}" already exists.`)
+    }
     const album: Album = {
       ...current,
-      name: patch.name === undefined ? current.name : cleanAlbumName(patch.name),
+      name,
       timeZone,
       updatedAt: now,
       schema: SCHEMA_VERSION,
