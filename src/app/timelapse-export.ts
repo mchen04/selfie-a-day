@@ -58,66 +58,69 @@ export async function makeTimelapseVideo({
 
   const ordered = [...photos].sort((a, b) => a.dayKey.localeCompare(b.dayKey))
   let current = await decodeMaster(ordered[0]!)
-  const canvas = document.createElement('canvas')
-  const scale = Math.min(1, 1440 / Math.max(current.width, current.height))
-  canvas.width = Math.max(2, Math.round(current.width * scale))
-  canvas.height = Math.max(2, Math.round(current.height * scale))
-  const context = canvas.getContext('2d')
-  if (!context) {
-    current.release()
-    throw new Error('Could not prepare the video canvas.')
-  }
-
-  drawFrame(context, canvas, current, ordered[0]!.dayKey, showDates)
-  const stream = canvas.captureStream(fps)
-  const track = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack | undefined
-  const mimeType = VIDEO_TYPES.find((type) => MediaRecorder.isTypeSupported(type))
-  const recorder = new MediaRecorder(stream, {
-    ...(mimeType ? { mimeType } : {}),
-    videoBitsPerSecond: 5_000_000,
-  })
-  const chunks: Blob[] = []
-  const stopped = new Promise<void>((resolve, reject) => {
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) chunks.push(event.data)
-    }
-    recorder.onerror = () => reject(new Error('Video encoding failed.'))
-    recorder.onstop = () => resolve()
-  })
+  let stream: MediaStream | null = null
 
   try {
-    recorder.start()
-    let next = ordered[1] ? decodeMaster(ordered[1]) : null
+    const canvas = document.createElement('canvas')
+    const scale = Math.min(1, 1440 / Math.max(current.width, current.height))
+    canvas.width = Math.max(2, Math.round(current.width * scale))
+    canvas.height = Math.max(2, Math.round(current.height * scale))
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('Could not prepare the video canvas.')
 
-    for (let index = 0; index < ordered.length; index += 1) {
-      if (index > 0) drawFrame(context, canvas, current, ordered[index]!.dayKey, showDates)
-      track?.requestFrame()
-      onProgress?.(index + 1, ordered.length)
-
-      const frameDelay = wait(1000 / fps)
-      const decodedNext = next ? await Promise.all([frameDelay, next]).then(([, image]) => image) : null
-      if (decodedNext) {
-        current.release()
-        current = decodedNext
-        const after = ordered[index + 2]
-        next = after ? decodeMaster(after) : null
+    drawFrame(context, canvas, current, ordered[0]!.dayKey, showDates)
+    stream = canvas.captureStream(fps)
+    const track = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack | undefined
+    const mimeType = VIDEO_TYPES.find((type) => MediaRecorder.isTypeSupported(type))
+    const recorder = new MediaRecorder(stream, {
+      ...(mimeType ? { mimeType } : {}),
+      videoBitsPerSecond: 5_000_000,
+    })
+    const chunks: Blob[] = []
+    const stopped = new Promise<void>((resolve, reject) => {
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data)
       }
+      recorder.onerror = () => reject(new Error('Video encoding failed.'))
+      recorder.onstop = () => resolve()
+    })
+
+    try {
+      recorder.start()
+      let next = ordered[1] ? decodeMaster(ordered[1]) : null
+
+      for (let index = 0; index < ordered.length; index += 1) {
+        if (index > 0) drawFrame(context, canvas, current, ordered[index]!.dayKey, showDates)
+        track?.requestFrame()
+        onProgress?.(index + 1, ordered.length)
+
+        const frameDelay = wait(1000 / fps)
+        const decodedNext = next
+          ? await Promise.all([frameDelay, next]).then(([, image]) => image)
+          : null
+        if (decodedNext) {
+          current.release()
+          current = decodedNext
+          const after = ordered[index + 2]
+          next = after ? decodeMaster(after) : null
+        }
+      }
+
+      recorder.stop()
+      await stopped
+    } catch (error) {
+      if (recorder.state !== 'inactive') recorder.stop()
+      throw error
     }
 
-    recorder.stop()
-    await stopped
-  } catch (error) {
-    if (recorder.state !== 'inactive') recorder.stop()
-    throw error
+    const type = recorder.mimeType || mimeType || chunks[0]?.type || 'video/webm'
+    const blob = new Blob(chunks, { type })
+    if (blob.size === 0) throw new Error('The browser produced an empty video.')
+    return { blob, extension: type.includes('mp4') ? 'mp4' : 'webm' }
   } finally {
     current.release()
-    for (const streamTrack of stream.getTracks()) streamTrack.stop()
+    for (const streamTrack of stream?.getTracks() ?? []) streamTrack.stop()
   }
-
-  const type = recorder.mimeType || mimeType || chunks[0]?.type || 'video/webm'
-  const blob = new Blob(chunks, { type })
-  if (blob.size === 0) throw new Error('The browser produced an empty video.')
-  return { blob, extension: type.includes('mp4') ? 'mp4' : 'webm' }
 }
 
 async function decodeMaster(photo: PhotoMeta): Promise<DecodedImage> {
@@ -155,7 +158,7 @@ function drawFrame(
   const boxHeight = fontSize + padding * 1.2
   const x = padding
   const y = canvas.height - boxHeight - padding
-  context.fillStyle = 'rgb(0 0 0 / 65%)'
+  context.fillStyle = 'rgba(0, 0, 0, 0.65)'
   context.fillRect(x, y, textWidth + padding * 2, boxHeight)
   context.fillStyle = '#fff'
   context.fillText(label, x + padding, y + boxHeight / 2)
