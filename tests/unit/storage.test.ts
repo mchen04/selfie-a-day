@@ -90,7 +90,7 @@ describe('photo repository', () => {
     expect((await ghostSource())?.dayKey).toBe('2026-08-09')
   })
 
-  it('replaces the existing photo when the same day is captured again', async () => {
+  it('moves the previous same-day photo to Trash when it is retaken', async () => {
     const first = makeWrite('2026-08-09', Date.parse('2026-08-09T09:00:00Z'))
     await putPhoto(first)
     const second = makeWrite('2026-08-09', Date.parse('2026-08-09T21:00:00Z'))
@@ -100,9 +100,12 @@ describe('photo repository', () => {
     expect(metas).toHaveLength(1)
     expect(metas[0]?.id).toBe(second.meta.id)
 
-    // The superseded photo's pixels must be gone too, not orphaned in storage.
-    expect(await getMaster(first.meta.id)).toBeNull()
-    expect(await getThumb(first.meta.id)).toBeNull()
+    const deleted = await listMeta({ onlyDeleted: true })
+    expect(deleted).toHaveLength(1)
+    expect(deleted[0]?.id).toBe(first.meta.id)
+    expect(typeof deleted[0]?.deletedAt).toBe('number')
+    expect(await getMaster(first.meta.id)).not.toBeNull()
+    expect(await getThumb(first.meta.id)).not.toBeNull()
     expect((await listMeta()).filter((m) => m.dayKey === '2026-08-09')).toHaveLength(1)
   })
 

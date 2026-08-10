@@ -6,7 +6,7 @@ WAVE: 7 — review follow-up complete: albums, timezone days, Trash, timelapse e
 LOOP: ux 3/8 converged | quality 4 — productive, did NOT reach 2x APPROVE
       (concrete reason recorded in docs/code-quality-loop.log.md)
 LAST VERIFIED: 2026-08-10 npm run verify:full exit 0;
-               129 unit tests passed; 102 local e2e passed / 14 production skipped;
+               132 unit tests passed; 110 local e2e passed / 14 production skipped;
                E2E_BASE_URL=https://selfie-a-day.vercel.app npx playwright test
                tests/e2e/production.spec.ts 14 passed;
                fresh-eyes pass gates 2-8 re-established from scratch: 7/7 PASS
@@ -140,7 +140,7 @@ red one. Each of these came out of the fresh-eyes pass.
   simulated by stubbing `getUserMedia` to reject. The real iOS prompt is
   unexercised.
 - **`npm run verify` does not run the browser suite.** It is typecheck, lint,
-  129 unit tests and a bundle. Green there says nothing about the camera, the
+  132 unit tests and a bundle. Green there says nothing about the camera, the
   ghost, IndexedDB or the deployed site — that is `npm run verify:full`.
 - **The end-to-end export test exports one photo.** Multi-photo round-tripping is
   covered at the unit layer only.
@@ -213,7 +213,7 @@ walker for that reason.
 
 ```
 npm run verify                      # typecheck + lint + test + build
-npx playwright test                 # 102 local tests (+14 production, skipped)
+npx playwright test                 # 110 local tests (+14 production, skipped)
 npm run verify:full                 # both
 E2E_BASE_URL=https://selfie-a-day.vercel.app npx playwright test tests/e2e/production.spec.ts
 ```

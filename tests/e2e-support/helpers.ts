@@ -140,6 +140,7 @@ export interface StoredPhotoInfo {
   id: string
   albumId?: string
   dayKey: string
+  capturedAt: number
   timeZone?: string | null
   deletedAt?: number | null
   width: number
@@ -173,6 +174,18 @@ export async function listStoredPhotos(
       db.close()
     }
   }, options.includeDeleted === true)
+}
+
+export async function delayCanvasEncoding(page: Page, milliseconds: number): Promise<void> {
+  await page.evaluate((delay) => {
+    const originalToBlob = Object.getOwnPropertyDescriptor(
+      HTMLCanvasElement.prototype,
+      'toBlob',
+    )?.value as HTMLCanvasElement['toBlob']
+    HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {
+      window.setTimeout(() => originalToBlob.call(this, callback, type, quality), delay)
+    }
+  }, milliseconds)
 }
 
 /**

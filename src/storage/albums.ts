@@ -92,14 +92,28 @@ export async function updateAlbum(
   })
 }
 
-/** Add albums from a backup without overwriting local names or timezone choices. */
+function isPristineDefaultAlbum(album: Album): boolean {
+  const pristine = defaultAlbum()
+  return (
+    album.id === pristine.id &&
+    album.name === pristine.name &&
+    album.timeZone === pristine.timeZone &&
+    album.createdAt === pristine.createdAt &&
+    album.updatedAt === pristine.updatedAt &&
+    album.deletedAt === pristine.deletedAt
+  )
+}
+
+/** Add backup albums while preserving settings already customized on this device. */
 export async function ensureAlbums(albums: readonly Album[]): Promise<void> {
   if (albums.length === 0) return
   await withTransaction(STORE_ALBUMS, 'readwrite', async (tx) => {
     const store = tx.objectStore(STORE_ALBUMS)
     for (const album of albums) {
+      const normalized = normalizeAlbum(album)
       const existing = await promisifyRequest(store.get(album.id) as IDBRequest<Album | undefined>)
-      if (!existing) store.add(normalizeAlbum(album))
+      if (!existing) store.add(normalized)
+      else if (isPristineDefaultAlbum(normalizeAlbum(existing))) store.put(normalized)
     }
   })
 }

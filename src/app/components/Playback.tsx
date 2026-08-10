@@ -3,6 +3,7 @@ import { dayKeyToDate, formatDayLabel, type DayKey } from '../../core/day.ts'
 import {
   filterTimelapsePhotos,
   formatTimelapseDuration,
+  orderTimelapsePhotos,
   type TimelapseRange,
   type TimelapseRangePreset,
 } from '../../core/timelapse.ts'
@@ -13,6 +14,7 @@ import {
   supportsTimelapseExport,
   timelapseFilename,
 } from '../timelapse-export.ts'
+import { useModalFocus } from '../useModalFocus.ts'
 import { useToast } from '../useToast.ts'
 import { IconClose, IconExport } from './Icons.tsx'
 import { Toast } from './Toast.tsx'
@@ -42,7 +44,7 @@ export function Playback({
 }) {
   const [range, setRange] = useState<TimelapseRange>({ preset: 'all' })
   const selected = useMemo(() => filterTimelapsePhotos(photos, range), [photos, range])
-  const ordered = useMemo(() => [...selected].reverse(), [selected])
+  const ordered = useMemo(() => orderTimelapsePhotos(selected), [selected])
   const [index, setIndex] = useState(0)
   const [playing, setPlaying] = useState(() => !prefersReducedMotion())
   const [fps, setFps] = useState<number>(6)
@@ -367,6 +369,7 @@ function PlaybackOptions({
   onShowDatesChange: (enabled: boolean) => void
   onClose: () => void
 }) {
+  const dialogRef = useModalFocus<HTMLElement>(onClose)
   const boundaries = useMemo(() => {
     const days = photos.map((photo) => photo.dayKey).sort()
     return { first: days[0] ?? '', last: days.at(-1) ?? '' }
@@ -386,8 +389,21 @@ function PlaybackOptions({
 
   return (
     <div className="sheet-layer" data-testid="playback-options-sheet">
-      <button type="button" className="sheet__backdrop" onClick={onClose} aria-label="Close timelapse options" />
-      <section className="sheet" role="dialog" aria-modal="true" aria-labelledby="timelapse-options-title">
+      <button
+        type="button"
+        className="sheet__backdrop"
+        onClick={onClose}
+        aria-label="Close timelapse options"
+        tabIndex={-1}
+      />
+      <section
+        ref={dialogRef}
+        className="sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="timelapse-options-title"
+        tabIndex={-1}
+      >
         <header className="sheet__header">
           <div>
             <h2 id="timelapse-options-title" className="sheet__title">Timelapse options</h2>

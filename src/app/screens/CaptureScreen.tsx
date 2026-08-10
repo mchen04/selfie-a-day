@@ -44,7 +44,7 @@ export function CaptureScreen() {
 
   const latest = metas[0] ?? null
   const { today, timeZone: albumTimeZone } = useCurrentDay(activeAlbum.timeZone)
-  const todayDone = latest?.dayKey === today
+  const todayDone = metas.some((meta) => meta.dayKey === today)
   const streak = currentStreak(
     metas.map((m) => m.dayKey),
     today,
@@ -114,6 +114,7 @@ export function CaptureScreen() {
       return
     }
 
+    const capturedAt = Date.now()
     setBusy(true)
     setFlash(true)
     try {
@@ -122,6 +123,7 @@ export function CaptureScreen() {
         mirrored: storageMirrored,
         albumId: activeAlbum.id,
         timeZone: albumTimeZone,
+        now: capturedAt,
       })
       await persist(result)
     } catch (err) {
@@ -150,6 +152,7 @@ export function CaptureScreen() {
       event.target.value = ''
       if (!file) return
 
+      const capturedAt = Date.now()
       setBusy(true)
       try {
         // Store in the same space as a live capture. A library that mixes
@@ -160,6 +163,7 @@ export function CaptureScreen() {
           mirrored: storageMirrored,
           albumId: activeAlbum.id,
           timeZone: albumTimeZone,
+          now: capturedAt,
         })
         await persist(result)
       } catch (err) {

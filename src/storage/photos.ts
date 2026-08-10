@@ -83,8 +83,8 @@ export async function getThumb(id: string): Promise<StoredImage | null> {
  * photo if there is one.
  *
  * One photo per day is the product's premise, so a re-take supersedes rather
- * than accumulates, and the delete happens in the same transaction as the write
- * — there is no instant where the day has no photo.
+ * than accumulates. The previous photo moves to Trash in the same transaction
+ * as the write, so replacement is both atomic and reversible.
  */
 async function writeInto(
   tx: IDBTransaction,
@@ -110,9 +110,7 @@ async function writeInto(
 
   for (const previous of active) {
     if (previous.id === normalized.meta.id) continue
-    photos.delete(previous.id)
-    tx.objectStore(STORE_THUMBS).delete(previous.id)
-    tx.objectStore(STORE_MASTERS).delete(previous.id)
+    photos.put({ ...previous, deletedAt: Date.now() })
   }
 
   photos.put(normalized.meta)

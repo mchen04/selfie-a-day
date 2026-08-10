@@ -1,5 +1,6 @@
 import { decodeImage, type DecodedImage } from '../camera/encode.ts'
 import { dayKeyToDate } from '../core/day.ts'
+import { orderTimelapsePhotos } from '../core/timelapse.ts'
 import type { PhotoMeta } from '../core/types.ts'
 import { getMaster } from '../storage/photos.ts'
 
@@ -28,9 +29,9 @@ export function timelapseFilename(
   photos: readonly PhotoMeta[],
   extension: TimelapseVideo['extension'],
 ): string {
-  const ordered = [...photos].sort((a, b) => a.dayKey.localeCompare(b.dayKey))
-  const first = ordered[0]?.dayKey ?? 'empty'
-  const last = ordered.at(-1)?.dayKey ?? 'empty'
+  const days = photos.map((photo) => photo.dayKey).sort()
+  const first = days[0] ?? 'empty'
+  const last = days.at(-1) ?? 'empty'
   const album = albumName
     .trim()
     .toLowerCase()
@@ -56,7 +57,7 @@ export async function makeTimelapseVideo({
   if (photos.length < 2) throw new Error('Choose at least two photos for a timelapse.')
   if (!Number.isFinite(fps) || fps <= 0) throw new RangeError('Timelapse speed must be positive.')
 
-  const ordered = [...photos].sort((a, b) => a.dayKey.localeCompare(b.dayKey))
+  const ordered = orderTimelapsePhotos(photos)
   let current = await decodeMaster(ordered[0]!)
   let stream: MediaStream | null = null
 
@@ -95,9 +96,13 @@ export async function makeTimelapseVideo({
         onProgress?.(index + 1, ordered.length)
 
         const frameDelay = wait(1000 / fps)
-        const decodedNext = next
-          ? await Promise.all([frameDelay, next]).then(([, image]) => image)
-          : null
+        let decodedNext: DecodedImage | null = null
+        if (next) {
+          const results = await Promise.all([frameDelay, next])
+          decodedNext = results[1]
+        } else {
+          await frameDelay
+        }
         if (decodedNext) {
           current.release()
           current = decodedNext
@@ -106,6 +111,11 @@ export async function makeTimelapseVideo({
         }
       }
 
+      // Give the held final image a sample at the end of its interval. Without
+      // this redraw, MediaRecorder ends the file one frame earlier than the UI.
+      drawFrame(context, canvas, current, ordered.at(-1)!.dayKey, showDates)
+      track?.requestFrame()
+      await wait(1000 / fps)
       recorder.stop()
       await stopped
     } catch (error) {

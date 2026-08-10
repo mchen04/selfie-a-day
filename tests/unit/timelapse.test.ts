@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   filterTimelapsePhotos,
   formatTimelapseDuration,
+  orderTimelapsePhotos,
   timelapseDurationSeconds,
 } from '../../src/core/timelapse.ts'
 
@@ -63,5 +64,15 @@ describe('timelapse duration', () => {
     expect(formatTimelapseDuration(2, 12)).toBe('0.2 sec')
     expect(formatTimelapseDuration(12, 6)).toBe('2 sec')
     expect(formatTimelapseDuration(372, 6)).toBe('1 min 2 sec')
+  })
+})
+
+describe('orderTimelapsePhotos', () => {
+  it('uses capture order even when timezone changes make day keys move backwards', () => {
+    const frames = [
+      { id: 'later', dayKey: '2026-08-09', capturedAt: 200 },
+      { id: 'earlier', dayKey: '2026-08-10', capturedAt: 100 },
+    ]
+    expect(orderTimelapsePhotos(frames).map((frame) => frame.id)).toEqual(['earlier', 'later'])
   })
 })

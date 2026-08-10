@@ -1278,6 +1278,7 @@
 }
 
 .segmented--compact .segmented__item {
+  min-width: var(--tap);
   min-height: var(--tap);
   font-size: 12.5px;
 }

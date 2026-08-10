@@ -30,6 +30,14 @@ export function filterTimelapsePhotos<T extends { dayKey: DayKey }>(
   return photos.filter((photo) => photo.dayKey >= from && photo.dayKey <= to)
 }
 
+export function orderTimelapsePhotos<T extends { capturedAt: number; id: string }>(
+  photos: readonly T[],
+): T[] {
+  return [...photos].sort(
+    (a, b) => a.capturedAt - b.capturedAt || a.id.localeCompare(b.id),
+  )
+}
+
 export function timelapseDurationSeconds(frameCount: number, fps: number): number {
   if (frameCount <= 0) return 0
   if (!Number.isFinite(fps) || fps <= 0) throw new RangeError('Timelapse speed must be positive.')

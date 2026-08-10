@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { dayKeyOf, resolvedTimeZone } from '../../core/day.ts'
 import type { Album, PhotoMeta } from '../../core/types.ts'
+import { useModalFocus } from '../useModalFocus.ts'
 import { IconCheck, IconClose, IconPlus } from './Icons.tsx'
 
 export function AlbumPicker({
@@ -22,19 +23,12 @@ export function AlbumPicker({
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const dialogRef = useModalFocus<HTMLElement>(onClose)
   const counts = useMemo(() => {
     const result = new Map<string, number>()
     for (const photo of photos) result.set(photo.albumId, (result.get(photo.albumId) ?? 0) + 1)
     return result
   }, [photos])
-
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [onClose])
 
   const select = async (id: string) => {
     setBusy(true)
@@ -65,8 +59,21 @@ export function AlbumPicker({
 
   return (
     <div className="sheet-layer" data-testid="album-picker">
-      <button type="button" className="sheet__backdrop" onClick={onClose} aria-label="Close album picker" />
-      <section className="sheet" role="dialog" aria-modal="true" aria-labelledby="album-picker-title">
+      <button
+        type="button"
+        className="sheet__backdrop"
+        onClick={onClose}
+        aria-label="Close album picker"
+        tabIndex={-1}
+      />
+      <section
+        ref={dialogRef}
+        className="sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="album-picker-title"
+        tabIndex={-1}
+      >
         <header className="sheet__header">
           <div>
             <h2 id="album-picker-title" className="sheet__title">

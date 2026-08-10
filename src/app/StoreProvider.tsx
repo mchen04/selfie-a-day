@@ -100,11 +100,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     await putPhoto({ meta: result.meta, master: result.master, thumb: result.thumb })
     // Re-read rather than splice locally: the write may have replaced an
     // existing photo for the same day, and the store is the authority on that.
-    const allMetas = await listMeta()
+    const [allMetas, trashedMetas] = await Promise.all([
+      listMeta(),
+      listMeta({ onlyDeleted: true }),
+    ])
     setState((prev) => ({
       ...prev,
       metas: activeMetas(allMetas, prev.activeAlbum.id),
       allMetas,
+      trashedMetas,
       storageError: null,
     }))
   }, [])
