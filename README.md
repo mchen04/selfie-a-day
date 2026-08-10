@@ -78,12 +78,18 @@ the only origins where the camera works.
 
 ```bash
 npm run verify       # typecheck + lint + test + build
-npx playwright test  # production end-to-end tests, mobile + desktop viewports
+npx playwright test  # local end-to-end tests, mobile + desktop viewports
 npm run verify:full  # both
 ```
 
 End-to-end tests run against a real production build served by `vite preview`,
 because the service worker, the precache and offline behaviour only exist there.
+The timelapse export check also expects `ffprobe` on `PATH` (it ships with
+FFmpeg) so the generated video's real container duration is verified.
+
+Screenshots, downloaded test files, camera fixtures, build output, and Playwright
+reports are generated artifacts. They are ignored by git and are not retained
+after a release run.
 
 Playwright starts and stops that server itself. If you run the suite repeatedly
 back to back, start the server yourself first — otherwise a second run can adopt

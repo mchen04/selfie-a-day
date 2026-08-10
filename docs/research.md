@@ -210,18 +210,23 @@ Everything in this section is a design or code change that would not exist witho
 14. **Day identity now records an IANA timezone.** Automatic mode is read from
     `Intl.DateTimeFormat().resolvedOptions().timeZone`; each album can pin a manual
     override. A live visibility/midnight watcher updates an open capture screen, while
-    stored day keys never change retroactively.
+    stored day keys never change retroactively. The capture timestamp is taken at the
+    shutter press or file selection, before encoding, so work that crosses midnight
+    cannot silently move to the following day.
 
 15. **Timelapse export was promoted from stretch to shipped.** The player filters by
     inclusive date ranges, reports frame count and duration, loops optionally, and can
     stamp dates without modifying masters. Export uses a rolling decode pipeline,
     canvas capture, codec feature detection, and `MediaRecorder`; mobile file sharing
-    is preferred when available and desktop falls back to download.
+    is preferred when available and desktop falls back to download. Playback and export
+    share capture-time ordering, and the generated container duration is checked against
+    the duration shown in the UI.
 
 16. **Deletion is now a reversible state transition.** Pixels remain in IndexedDB for
     30 days, immediate Undo and a central Trash screen both restore them, and a restore
     refuses to overwrite a newer active photo in the same album/day. Empty Trash and
-    expiry are the only bulk permanent-delete paths.
+    expiry are the only bulk permanent-delete paths. Same-day retakes and backup
+    replacements also move the displaced photo to Trash instead of destroying it.
 
 ### Findings that produced no change, recorded so the reasoning is auditable
 
