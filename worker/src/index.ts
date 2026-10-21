@@ -1,6 +1,6 @@
 import type { ExecutionContext, ScheduledController } from '@cloudflare/workers-types'
 import type { Env } from './core/env'
-import { authenticate, handleAuth, purgeExpiredAuth } from './core/auth'
+import { authenticate, handleAuth, purgeExpiredAuth, sessionCookie, sessionHeaders } from './core/auth'
 import { putAlbum } from './core/albums'
 import { HttpError, json } from './core/http'
 import { deletePhoto, emptyTrash, getImage, patchPhoto, purgeExpiredTrash, uploadPhoto } from './core/photos'
@@ -39,6 +39,7 @@ async function route(request: Request, env: Env, url: URL, userId: string, now: 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     let renewal: string | undefined
+    let authenticated = false
     let response: Response
     try {
       const url = new URL(request.url)
@@ -52,6 +53,7 @@ export default {
       }
       const now = Date.now()
       const session = await authenticate(request, env, now)
+      authenticated = session !== null
       renewal = session?.cookie
       const authResponse = await handleAuth(request, env, url, session, now)
       if (authResponse) response = authResponse
@@ -64,7 +66,11 @@ export default {
         ? json({ error: error.code }, error.status, error.headers)
         : json({ error: 'internal_error' }, 500)
     }
-    if (renewal && !response.headers.has('Set-Cookie')) response.headers.set('Set-Cookie', renewal)
+    if (response.status === 401 && !authenticated) {
+      for (const [name, value] of sessionHeaders(env, sessionCookie(env, '', 0), 0)) response.headers.append(name, value)
+    } else if (renewal && !response.headers.has('Set-Cookie')) {
+      for (const [name, value] of sessionHeaders(env, renewal)) response.headers.append(name, value)
+    }
     response.headers.set('X-Content-Type-Options', 'nosniff')
     if (!response.headers.has('Cache-Control')) response.headers.set('Cache-Control', 'no-store')
     return request.method === 'HEAD' ? new Response(null, { status: response.status, headers: response.headers }) : response

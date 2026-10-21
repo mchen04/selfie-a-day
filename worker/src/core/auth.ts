@@ -31,6 +31,14 @@ export function sessionCookie(env: Env, token: string, maxAge = SESSION_LIFETIME
   return `${cookieName(env)}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${env.COOKIE_SECURE === 'false' ? '' : '; Secure'}`
 }
 
+export function sessionHeaders(env: Env, cookie: string, maxAge = SESSION_LIFETIME / 1000): [string, string][] {
+  const name = env.COOKIE_SECURE === 'false' ? 'sad_hint' : '__Host-sad_hint'
+  return [
+    ['Set-Cookie', cookie],
+    ['Set-Cookie', `${name}=${maxAge === 0 ? '' : '1'}; Path=/; SameSite=Strict; Max-Age=${maxAge}${env.COOKIE_SECURE === 'false' ? '' : '; Secure'}`],
+  ]
+}
+
 function requestToken(request: Request, env: Env): string | null {
   const prefix = `${cookieName(env)}=`
   const cookie = (request.headers.get('Cookie') ?? '').split(';').map((part) => part.trim()).find((part) => part.startsWith(prefix))
@@ -109,7 +117,7 @@ async function signup(request: Request, env: Env, now: number): Promise<Response
     if (String(error).includes('UNIQUE constraint failed: users.username')) throw new HttpError(409, 'username_taken')
     throw error
   }
-  return json({ user }, 201, { 'Set-Cookie': await createSession(env, user.id, now) })
+  return json({ user }, 201, sessionHeaders(env, await createSession(env, user.id, now)))
 }
 
 async function login(request: Request, env: Env, now: number): Promise<Response> {
@@ -142,7 +150,7 @@ async function login(request: Request, env: Env, now: number): Promise<Response>
   }
   await env.DB.prepare('DELETE FROM auth_attempts WHERE key = ? AND window_start = ?').bind(usernameKey, attempts[1]!.window_start).run()
   await refund(attempts.filter((attempt) => attempt.key !== usernameKey))
-  return json({ user: { id: user.id, username: user.username } }, 200, { 'Set-Cookie': await createSession(env, user.id, now) })
+  return json({ user: { id: user.id, username: user.username } }, 200, sessionHeaders(env, await createSession(env, user.id, now)))
 }
 
 export async function purgeExpiredAuth(env: Env, now: number): Promise<void> {
@@ -162,7 +170,7 @@ export async function handleAuth(request: Request, env: Env, url: URL, session: 
   if (url.pathname === '/api/auth/logout' && method === 'POST') {
     if (session) await env.DB.prepare('DELETE FROM sessions WHERE id = ? AND user_id = ?').bind(session.id, session.user.id).run()
     const response = empty()
-    response.headers.set('Set-Cookie', sessionCookie(env, '', 0))
+    for (const [name, value] of sessionHeaders(env, sessionCookie(env, '', 0), 0)) response.headers.append(name, value)
     return response
   }
   if (url.pathname === '/api/auth/me' && method === 'GET') {

@@ -2,6 +2,39 @@ import { expect, test } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { createAccount, mutationHeaders } from '../../e2e-support/api.ts'
 
+test('a cookie-only session reaches capture without showing the account form', async ({ page, context }) => {
+  await createAccount(page.request)
+  expect((await context.cookies()).some((cookie) => ['sad_hint', '__Host-sad_hint'].includes(cookie.name) && cookie.value === '1')).toBe(true)
+  await page.addInitScript(() => {
+    const selector = '[data-testid="account-screen"]'
+    new MutationObserver((records) => {
+      for (const record of records) for (const node of Array.from(record.addedNodes)) {
+        if (node instanceof Element && (node.matches(selector) || node.querySelector(selector))) {
+          sessionStorage.setItem('account-form-seen', '1')
+        }
+      }
+    }).observe(document, { childList: true, subtree: true })
+  })
+  let release: (() => void) | undefined
+  const validation = new Promise<void>((resolve) => { release = resolve })
+  let checks = 0
+  await page.route('**/api/auth/me', async (route) => {
+    checks++
+    await validation
+    await route.continue()
+  })
+  try {
+    await page.goto('/')
+    await expect.poll(() => checks).toBe(1)
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => { requestAnimationFrame(() => resolve()) })))
+    await expect(page.getByTestId('boot')).toBeVisible()
+    await expect(page.getByTestId('account-screen')).toHaveCount(0)
+  } finally { release!() }
+  await expect(page.getByTestId('capture-screen')).toBeVisible()
+  expect(await page.evaluate(() => sessionStorage.getItem('account-form-seen'))).toBeNull()
+  expect(checks).toBe(1)
+})
+
 test('create an account, log out, and sign in with the same account', async ({ page }) => {
   const username = `ui-${randomUUID().replaceAll('-', '').slice(0, 20)}`
   const password = randomUUID() + randomUUID()

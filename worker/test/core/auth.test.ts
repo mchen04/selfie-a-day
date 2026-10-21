@@ -3,6 +3,14 @@ import { randomBytes } from 'node:crypto'
 import { createHarness, type Harness, ORIGIN, TEST_NOW, TEST_PASSWORD } from '../support/harness'
 import { tokenHash } from '../../src/core/password'
 
+function expectHint(headers: Pick<Headers, 'getSetCookie'>, local = false, maxAge = 7_776_000) {
+  const name = local ? 'sad_hint' : '__Host-sad_hint'
+  const cookies = headers.getSetCookie()
+  expect(cookies).toHaveLength(2)
+  const hint = cookies.find((cookie) => cookie.startsWith(`${name}=`))
+  expect(hint).toBe(`${name}=${maxAge === 0 ? '' : '1'}; Path=/; SameSite=Strict; Max-Age=${maxAge}${local ? '' : '; Secure'}`)
+}
+
 describe('accounts and sessions in workerd', () => {
   let h: Harness
   beforeAll(async () => { h = await createHarness() })
@@ -15,6 +23,7 @@ describe('accounts and sessions in workerd', () => {
     expect(cookie).toMatch(/^__Host-sad_session=[A-Za-z0-9_-]{43};/)
     for (const attribute of ['Secure', 'HttpOnly', 'SameSite=Strict', 'Path=/', 'Max-Age=7776000']) expect(cookie).toContain(attribute)
     expect(cookie).not.toContain('Domain=')
+    expectHint(response.headers)
     const data = await response.json<{ user: { id: string; username: string } }>()
     expect(data.user.username).toBe('abc.def')
     const row = await h.env.DB.prepare('SELECT password_hash FROM users WHERE id = ?').bind(data.user.id).first<{ password_hash: string }>()
@@ -46,9 +55,11 @@ describe('accounts and sessions in workerd', () => {
     const ip = await h.env.DB.prepare('SELECT count FROM auth_attempts WHERE key = ?').bind('login-ip:192.0.2.11').first<{ count: number }>()
     expect(ip!.count).toBe(1)
     const cookie = good.headers.get('Set-Cookie')!
+    expectHint(good.headers)
     const logout = await h.request('/api/auth/logout', { method: 'POST', cookie })
     expect(logout.status).toBe(204)
     expect(logout.headers.get('Set-Cookie')).toContain('Max-Age=0')
+    expectHint(logout.headers, false, 0)
     expect((await h.request('/api/auth/me', { cookie })).status).toBe(401)
     expect((await h.request('/api/auth/logout', { method: 'POST' })).status).toBe(204)
     expect((await h.request('/api/auth/me')).status).toBe(401)
@@ -75,10 +86,13 @@ describe('accounts and sessions in workerd', () => {
     const renewed = await h.request('/api/auth/me', { cookie: user.cookie, now: TEST_NOW + 1 })
     expect(renewed.status).toBe(200)
     expect(renewed.headers.get('Set-Cookie')).toContain(user.cookie)
+    expectHint(renewed.headers)
     const row = await h.env.DB.prepare('SELECT expires_at, last_seen_at FROM sessions WHERE id = ?').bind(sessionId).first<{ expires_at: number; last_seen_at: number }>()
     expect(row).toEqual({ expires_at: TEST_NOW + 1 + 90 * 86400000, last_seen_at: TEST_NOW + 1 })
     await h.sql('UPDATE sessions SET expires_at = ? WHERE id = ?', TEST_NOW, sessionId)
-    expect((await h.request('/api/auth/me', { cookie: user.cookie })).status).toBe(401)
+    const expired = await h.request('/api/auth/me', { cookie: user.cookie })
+    expect(expired.status).toBe(401)
+    expectHint(expired.headers, false, 0)
     expect((await h.request('/api/auth/me', { cookie: `__Host-sad_session=${randomBytes(32).toString('base64url')}` })).status).toBe(401)
   })
 
@@ -258,10 +272,12 @@ describe('local cookie mode', () => {
     for (const attribute of ['HttpOnly', 'SameSite=Strict', 'Path=/', 'Max-Age=7776000']) expect(cookie).toContain(attribute)
     expect(cookie).not.toContain('Secure')
     expect(cookie).not.toContain('Domain=')
+    expectHint(login.headers, true)
     expect((await h.request('/api/auth/me', { cookie })).status).toBe(200)
     const logout = await h.request('/api/auth/logout', { method: 'POST', cookie })
     expect(logout.headers.get('Set-Cookie')).toMatch(/^sad_session=;/)
     expect(logout.headers.get('Set-Cookie')).toContain('Max-Age=0')
     expect(logout.headers.get('Set-Cookie')).not.toContain('Secure')
+    expectHint(logout.headers, true, 0)
   })
 })

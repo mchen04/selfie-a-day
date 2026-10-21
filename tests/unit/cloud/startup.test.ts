@@ -18,13 +18,13 @@ let remote: ReturnType<typeof server>
 let session: Promise<Response>
 let respond: (response: Response) => void
 let fail: (error: Error) => void
-let rendered: Array<{ userId: string | undefined; ids: string[] }>
+let rendered: Array<{ status: AppContextValue['status']; userId: string | undefined; ids: string[] }>
 
 function Probe() {
   const value = useApp()
   useEffect(() => {
     app = value
-    rendered.push({ userId: value.user?.id, ids: value.allMetas.map((item) => item.id) })
+    rendered.push({ status: value.status, userId: value.user?.id, ids: value.allMetas.map((item) => item.id) })
   }, [value])
   return value.status === 'signed-out' ? createElement(AccountScreen) : createElement('div', null, value.status)
 }
@@ -87,6 +87,48 @@ describe('startup without a network wait', () => {
     expect(remote.mocked.mock.calls.filter(([url]) => url === '/api/auth/me')).toHaveLength(1)
   })
 
+  it.each(['sad_hint', '__Host-sad_hint'])('waits for a cookie-only session with %s without showing the account form', async (name) => {
+    vi.spyOn(document, 'cookie', 'get').mockReturnValue(`${name}=1`)
+    await mount()
+    await waitFor(() => expect(remote.mocked).toHaveBeenCalledOnce())
+    expect(app.status).toBe('loading')
+    expect(container.querySelector('[data-testid="account-screen"]')).toBeNull()
+    await settle(() => { respond(reply({ user: owner })) })
+    await waitFor(() => { expect(app.status).toBe('ready'); expect(app.syncing).toBe(false) })
+    expect(app.user).toEqual(owner)
+    expect(rendered.some((value) => value.status === 'signed-out')).toBe(false)
+    expect(remote.mocked.mock.calls.filter(([url]) => url === '/api/auth/me')).toHaveLength(1)
+  })
+
+  it('shows the account form after a hinted session returns 401', async () => {
+    vi.spyOn(document, 'cookie', 'get').mockReturnValue('sad_hint=1')
+    await mount()
+    await waitFor(() => expect(remote.mocked).toHaveBeenCalledOnce())
+    expect(app.status).toBe('loading')
+    await settle(() => { respond(reply({ error: 'unauthenticated' }, 401)) })
+    await waitFor(() => expect(container.querySelector('[data-testid="account-screen"]')).not.toBeNull())
+    expect(app.status).toBe('signed-out')
+    expect(app.user).toBeNull()
+    expect(remote.mocked.mock.calls.map(([url]) => url)).toEqual(['/api/auth/me'])
+  })
+
+  it('shows the connection error if a hinted session cannot be checked offline', async () => {
+    vi.spyOn(document, 'cookie', 'get').mockReturnValue('sad_hint=1')
+    await mount()
+    await waitFor(() => expect(remote.mocked).toHaveBeenCalledOnce())
+    expect(app.status).toBe('loading')
+    await settle(() => { fail(new TypeError('offline')) })
+    await waitFor(() => expect(container.querySelector('[role="alert"]')?.textContent).toContain('Connect to sign in.'))
+    expect(app.status).toBe('signed-out')
+  })
+
+  it.each(['other_sad_hint=1', 'sad_hint=10', 'sad_hint=0'])('ignores a cookie without the exact hint: %s', async (cookie) => {
+    vi.spyOn(document, 'cookie', 'get').mockReturnValue(cookie)
+    await mount()
+    await waitFor(() => expect(app.status).toBe('signed-out'))
+    expect(container.querySelector('[data-testid="account-screen"]')).not.toBeNull()
+  })
+
   it('keeps the visible account form when a cold session check returns 401', async () => {
     await mount()
     await waitFor(() => expect(app.status).toBe('signed-out'))
@@ -103,7 +145,8 @@ describe('startup without a network wait', () => {
     await waitFor(() => expect(container.querySelector('[role="alert"]')?.textContent).toContain('Connect to sign in.'))
   })
 
-  it('opens the cached account and fetches sync before validation without applying unverified data', async () => {
+  it.each([false, true])('opens the cached account before validation with hint %s without applying unverified data', async (hint) => {
+    if (hint) vi.spyOn(document, 'cookie', 'get').mockReturnValue('sad_hint=1')
     const cached = photo(), updated = photo(cached.capturedAt + 1)
     await cacheUser(owner)
     await writeSnapshot(owner.id, { albums: [defaultAlbum()], photos: [cached], cursor: 'cached' })

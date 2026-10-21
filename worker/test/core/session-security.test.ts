@@ -40,6 +40,105 @@ async function session() {
 
 async function writes() { return (await db.prepare('SELECT total_changes() AS count').first<{ count: number }>())!.count }
 
+describe.each(['false', 'true'])('session hint cookies with COOKIE_SECURE=%s', (secure) => {
+  const prefix = secure === 'false' ? 'sad' : '__Host-sad'
+
+  function request(path: string, method = 'GET', cookie?: string, body?: unknown) {
+    env.COOKIE_SECURE = secure
+    return worker.fetch(new Request(`https://selfie.example${path}`, {
+      method,
+      headers: { Origin: env.ALLOWED_ORIGINS, 'X-Selfie-CSRF': '1', ...(cookie ? { Cookie: cookie } : {}) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }), env)
+  }
+
+  function expectCookies(response: Response, maxAge: number) {
+    const cookies = response.headers.getSetCookie()
+    expect(cookies).toHaveLength(2)
+    const session = cookies.find((cookie) => cookie.startsWith(`${prefix}_session=`))!
+    const hint = cookies.find((cookie) => cookie.startsWith(`${prefix}_hint=`))!
+    const attributes = ['Path=/', 'SameSite=Strict', `Max-Age=${maxAge}`, ...(secure === 'false' ? [] : ['Secure'])]
+    expect(session.split(';').slice(1).map((value) => value.trim()).sort()).toEqual([...attributes, 'HttpOnly'].sort())
+    const [value, ...hintAttributes] = hint.split(';').map((part) => part.trim())
+    expect(value).toBe(`${prefix}_hint=${maxAge === 0 ? '' : '1'}`)
+    expect(hintAttributes.sort()).toEqual(attributes.sort())
+  }
+
+  async function existingSession() {
+    const current = await session()
+    const cookie = current.request.headers.get('Cookie')!.replace('sad_session=', `${prefix}_session=`)
+    return { ...current, cookie }
+  }
+
+  it('sets the readable constant hint beside the signup cookie', async () => {
+    const response = await request('/api/auth/signup', 'POST', undefined, {
+      username: 'synthetic-signup', password: randomBytes(18).toString('base64url'),
+    })
+    expect(response.status).toBe(201)
+    expectCookies(response, 7_776_000)
+  })
+
+  it('sets the hint beside the login cookie', async () => {
+    vi.spyOn(passwords, 'verifyPassword').mockResolvedValue(true)
+    const response = await request('/api/auth/login', 'POST', undefined, {
+      username: 'synthetic', password: randomBytes(18).toString('base64url'),
+    })
+    expect(response.status).toBe(200)
+    expectCookies(response, 7_776_000)
+  })
+
+  it('renews both cookies only when the session needs renewal', async () => {
+    const current = await existingSession()
+    expect((await request('/api/auth/me', 'GET', current.cookie)).headers.getSetCookie()).toEqual([])
+    await db.prepare('UPDATE sessions SET expires_at = ? WHERE id = ?').bind(now + 44 * day, current.id).run()
+    const response = await request('/api/auth/me', 'GET', current.cookie)
+    expect(response.status).toBe(200)
+    expectCookies(response, 7_776_000)
+  })
+
+  it.each([false, true])('clears both cookies on logout with an existing session: %s', async (signedIn) => {
+    const cookie = signedIn ? (await existingSession()).cookie : `${prefix}_hint=1`
+    const response = await request('/api/auth/logout', 'POST', cookie)
+    expect(response.status).toBe(204)
+    expectCookies(response, 0)
+    expect(await db.prepare('SELECT count(*) AS count FROM sessions').first()).toEqual({ count: 0 })
+  })
+
+  it.each(['missing', 'malformed', 'unknown', 'expired'])('clears both cookies for a %s session on protected routes', async (state) => {
+    const current = await existingSession()
+    if (state === 'expired') await db.prepare('UPDATE sessions SET expires_at = ? WHERE id = ?').bind(now, current.id).run()
+    const cookie = state === 'missing' ? '' : state === 'malformed' ? `${prefix}_session=invalid`
+      : state === 'unknown' ? `${prefix}_session=${randomBytes(32).toString('base64url')}` : current.cookie
+    for (const path of ['/api/auth/me', '/api/sync']) {
+      const response = await request(path, 'GET', `${cookie}; ${prefix}_hint=1`)
+      expect(response.status).toBe(401)
+      expect(await response.json()).toEqual({ error: 'unauthenticated' })
+      expectCookies(response, 0)
+    }
+  })
+
+  it('keeps an existing session when a password attempt fails', async () => {
+    vi.spyOn(passwords, 'verifyPassword').mockResolvedValue(false)
+    const current = await existingSession()
+    const response = await request('/api/auth/login', 'POST', current.cookie, {
+      username: 'synthetic', password: randomBytes(18).toString('base64url'),
+    })
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ error: 'invalid_credentials' })
+    expect(response.headers.getSetCookie()).toEqual([])
+    expect((await request('/api/auth/me', 'GET', current.cookie)).status).toBe(200)
+  })
+
+  it('clears a stale hint when a password attempt fails without a valid session', async () => {
+    vi.spyOn(passwords, 'verifyPassword').mockResolvedValue(false)
+    const response = await request('/api/auth/login', 'POST', `${prefix}_hint=1`, {
+      username: 'synthetic', password: randomBytes(18).toString('base64url'),
+    })
+    expect(response.status).toBe(401)
+    expectCookies(response, 0)
+  })
+})
+
 describe('session and login security', () => {
   it('reserves concurrent guesses before password verification', async () => {
     const verify = vi.spyOn(passwords, 'verifyPassword')

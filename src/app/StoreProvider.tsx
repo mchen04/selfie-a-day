@@ -79,11 +79,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       try {
         const cached = await cachedUser()
         if (cancelled || controller.signal.aborted) return
-        if (!cached) setStatus('signed-out')
+        const hinted = !cached && document.cookie.split(';').some((cookie) => /^(?:__Host-sad_hint|sad_hint)=1$/.test(cookie.trim()))
+        if (!cached && !hinted) setStatus('signed-out')
         const session = api.me(controller.signal, cached !== null)
         const validation = session.then(({ user }) => user, (error: unknown) => {
           if (cancelled || controller.signal.aborted) return null
-          if (error instanceof ApiError && error.status === 401) return null
+          if (error instanceof ApiError && error.status === 401) {
+            if (!cached) setStatus('signed-out')
+            return null
+          }
           if (!cached) { setStatus('signed-out'); setStorageError('Connect to sign in. Your saved photos stay in your account.') }
           return null
         })
