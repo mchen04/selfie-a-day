@@ -1,0 +1,7 @@
+{
+  "extends": "../../src/push/tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["./**/*.ts", "../../src/push/**/*.ts"]
+}
