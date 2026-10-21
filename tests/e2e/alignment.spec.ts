@@ -113,9 +113,7 @@ test.describe('coordinate space', () => {
 
   test('the ghost lines up with the live preview on screen', async ({ page }) => {
     // Grid off so no guide line can land on a sample point.
-    await page.getByTestId('nav-settings').click()
-    await page.getByTestId('settings-grid').getByRole('button', { name: 'Off' }).click()
-    await page.getByTestId('settings-back').click()
+    while (await page.getByTestId('grid-toggle').getAttribute('data-grid') !== 'off') await page.getByTestId('grid-toggle').click()
     await waitForCameraLive(page)
 
     await captureOnce(page)
@@ -217,30 +215,7 @@ test.describe('coordinate space', () => {
     await captureOnce(page)
 
     for (let round = 0; round < 3; round++) {
-      // Backdate so each capture lands on a different day.
-      await page.evaluate(async () => {
-        const db = await new Promise<IDBDatabase>((res, rej) => {
-          const req = indexedDB.open('selfie-a-day')
-          req.onsuccess = () => res(req.result)
-          req.onerror = () => rej(req.error ?? new Error('open failed'))
-        })
-        await new Promise<void>((res, rej) => {
-          const tx = db.transaction('photos', 'readwrite')
-          const store = tx.objectStore('photos')
-          const all = store.getAll()
-          all.onsuccess = () => {
-            for (const meta of all.result as { dayKey: string; capturedAt: number }[]) {
-              const d = new Date(meta.capturedAt - 86_400_000 * 40)
-              meta.capturedAt = d.getTime()
-              meta.dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-              store.put(meta)
-            }
-          }
-          tx.oncomplete = () => res()
-          tx.onerror = () => rej(tx.error ?? new Error('write failed'))
-        })
-        db.close()
-      })
+      await page.clock.setFixedTime(new Date(Date.parse('2027-01-10T12:00:00Z') + round * 86_400_000))
 
       // Flip the setting, then capture again.
       await page.getByTestId('nav-settings').click()

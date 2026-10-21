@@ -5,7 +5,7 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
 export default tseslint.config(
-  { ignores: ['dist', 'dev-dist', 'coverage', 'test-results', 'playwright-report', 'evidence'] },
+  { ignores: ['dist', 'dev-dist', 'coverage', 'test-results', 'playwright-report', 'evidence', '.wrangler'] },
   {
     files: ['**/*.{ts,tsx}'],
     extends: [js.configs.recommended, ...tseslint.configs.recommendedTypeChecked],
@@ -25,31 +25,33 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
-      // Guardrail for the whole point of this app: nothing may ship image bytes
-      // off the device. Any network primitive in app code must be justified.
       'no-restricted-globals': [
         'error',
-        { name: 'fetch', message: 'This app is local-first: no app code may make network requests.' },
-        { name: 'XMLHttpRequest', message: 'This app is local-first: no app code may make network requests.' },
+        { name: 'fetch', message: 'Use src/api/client.ts for network requests.' },
+        { name: 'XMLHttpRequest', message: 'Use src/api/client.ts for network requests.' },
       ],
+      'no-restricted-properties': ['error', ...['window', 'self', 'globalThis'].map((object) => ({ object, property: 'fetch', message: 'Use src/api/client.ts for network requests.' }))],
       'no-restricted-syntax': [
         'error',
         {
           selector: "NewExpression[callee.name='WebSocket']",
-          message: 'This app is local-first: no app code may open sockets.',
+          message: 'Use the API client for network requests.',
         },
         {
           selector: "CallExpression[callee.object.name='navigator'][callee.property.name='sendBeacon']",
-          message: 'This app is local-first: no telemetry.',
+          message: 'Do not send telemetry.',
         },
       ],
     },
   },
   {
-    // The service worker legitimately uses fetch/caches for offline app-shell
-    // delivery. It never reads or transmits IndexedDB photo data.
-    files: ['src/sw.ts'],
-    rules: { 'no-restricted-globals': 'off' },
+    files: ['src/api/**/*.ts'],
+    rules: { 'no-restricted-globals': 'off', 'no-restricted-properties': 'off' },
+  },
+  {
+    files: ['worker/**/*.{ts,tsx}'],
+    languageOptions: { globals: { ...globals.worker, ...globals.serviceworker, ...globals.node } },
+    rules: { 'no-restricted-globals': 'off', 'no-restricted-properties': 'off', 'no-restricted-syntax': 'off', 'react-hooks/rules-of-hooks': 'off' },
   },
   {
     files: ['tests/**/*.ts', '*.config.ts', 'scripts/**/*.mjs'],
@@ -59,6 +61,7 @@ export default tseslint.config(
     },
     rules: {
       'no-restricted-globals': 'off',
+      'no-restricted-properties': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },

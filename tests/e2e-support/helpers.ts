@@ -1,6 +1,7 @@
 import { expect, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { createAccount, snapshot } from './api.ts'
 
 /**
  * Evidence lives outside the repository, per the project's convention that
@@ -31,17 +32,10 @@ export async function shot(page: Page, name: string): Promise<string> {
  * that is sitting behind the onboarding it never dismissed.
  */
 export async function completeOnboarding(page: Page): Promise<void> {
-  await expect(
-    page
-      .locator(
-        '[data-testid="onboarding-screen"], [data-testid="capture-screen"], [data-testid="boot-error"]',
-      )
-      .first(),
-  ).toBeVisible({ timeout: 20_000 })
-
-  const start = page.getByTestId('onboarding-start')
-  if (await start.isVisible().catch(() => false)) {
-    await start.click()
+  await expect(page.locator('[data-testid="account-screen"], [data-testid="capture-screen"], [data-testid="boot-error"]').first()).toBeVisible({ timeout: 20_000 })
+  if (await page.getByTestId('account-screen').isVisible()) {
+    await createAccount(page.request)
+    await page.reload()
   }
   await expect(page.getByTestId('capture-screen')).toBeVisible()
 }
@@ -95,7 +89,7 @@ export async function waitForCameraLive(page: Page): Promise<void> {
  * Waits for a *new* id rather than a higher count: a second capture on the same
  * day replaces the first by design, so counting would hang forever.
  */
-export async function captureOnce(page: Page): Promise<string> {
+export async function captureOnce(page: Page, waitForUpload = true): Promise<string> {
   const before = new Set((await listStoredPhotos(page)).map((p) => p.id))
   await page.getByTestId('shutter').click()
 
@@ -111,29 +105,16 @@ export async function captureOnce(page: Page): Promise<string> {
     )
     .not.toBeNull()
 
+  if (waitForUpload && await page.evaluate(() => navigator.onLine)) {
+    await expect.poll(async () => (await snapshot(page.request)).photos.some((photo) => photo.id === created), { timeout: 30_000 }).toBe(true)
+    await expect.poll(async () => (await listStoredPhotos(page)).some((photo) => photo.id === created)).toBe(true)
+  }
   return created!
 }
 
 /** Read the photo count straight out of IndexedDB, not out of the UI. */
 export async function countPhotos(page: Page): Promise<number> {
-  return page.evaluate(async () => {
-    const db = await new Promise<IDBDatabase>((res, rej) => {
-      const req = indexedDB.open('selfie-a-day')
-      req.onsuccess = () => res(req.result)
-      req.onerror = () => rej(req.error ?? new Error('IndexedDB request failed'))
-    })
-    try {
-      if (!db.objectStoreNames.contains('photos')) return 0
-      return await new Promise<number>((res, rej) => {
-        const req = db.transaction('photos', 'readonly').objectStore('photos').getAll()
-        req.onsuccess = () =>
-          res((req.result as Array<{ deletedAt?: number | null }>).filter((row) => row.deletedAt == null).length)
-        req.onerror = () => rej(req.error ?? new Error('IndexedDB request failed'))
-      })
-    } finally {
-      db.close()
-    }
-  })
+  return (await listStoredPhotos(page)).length
 }
 
 export interface StoredPhotoInfo {
@@ -156,23 +137,30 @@ export async function listStoredPhotos(
   options: { includeDeleted?: boolean } = {},
 ): Promise<StoredPhotoInfo[]> {
   return page.evaluate(async (includeDeleted) => {
-    const db = await new Promise<IDBDatabase>((res, rej) => {
-      const req = indexedDB.open('selfie-a-day')
-      req.onsuccess = () => res(req.result)
-      req.onerror = () => rej(req.error ?? new Error('IndexedDB request failed'))
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('selfie-a-day')
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error ?? new Error('Cannot open storage'))
     })
-    try {
-      return await new Promise<StoredPhotoInfo[]>((res, rej) => {
-        const req = db.transaction('photos', 'readonly').objectStore('photos').getAll()
-        req.onsuccess = () => {
-          const rows = req.result as StoredPhotoInfo[]
-          res(includeDeleted ? rows : rows.filter((row) => row.deletedAt == null))
-        }
-        req.onerror = () => rej(req.error ?? new Error('IndexedDB request failed'))
+    function read<T>(store: string, key?: string): Promise<T> {
+      return new Promise((resolve, reject) => {
+        const request = key === undefined ? db.transaction(store).objectStore(store).getAll() : db.transaction(store).objectStore(store).get(key)
+        request.onsuccess = () => resolve(request.result as T)
+        request.onerror = () => reject(request.error ?? new Error('Cannot read storage'))
       })
-    } finally {
-      db.close()
     }
+    try {
+      const user = await read<{ id: string } | undefined>('kv', 'user')
+      if (!user) return []
+      const cached = await read<{ photos: StoredPhotoInfo[] } | undefined>('kv', `user:${user.id}:snapshot`)
+      const pending = (await read<Array<{ userId: string; meta: StoredPhotoInfo }>>('outbox')).filter((entry) => entry.userId === user.id)
+      const photos = new Map((cached?.photos ?? []).map((photo) => [photo.id, photo]))
+      for (const entry of pending) {
+        for (const photo of photos.values()) if (photo.deletedAt == null && photo.albumId === entry.meta.albumId && photo.dayKey === entry.meta.dayKey) photos.set(photo.id, { ...photo, deletedAt: entry.meta.capturedAt })
+        photos.set(entry.meta.id, entry.meta)
+      }
+      return [...photos.values()].filter((photo) => includeDeleted || photo.deletedAt == null).sort((a, b) => b.capturedAt - a.capturedAt)
+    } finally { db.close() }
   }, options.includeDeleted === true)
 }
 
@@ -197,43 +185,24 @@ export async function samplePhotoPixels(
   id: string,
   points: readonly { name: string; u: number; v: number }[],
 ): Promise<{ width: number; height: number; samples: Record<string, [number, number, number]> }> {
-  return page.evaluate(
-    async ({ id, points }) => {
-      const db = await new Promise<IDBDatabase>((res, rej) => {
-        const req = indexedDB.open('selfie-a-day')
-        req.onsuccess = () => res(req.result)
-        req.onerror = () => rej(req.error ?? new Error('IndexedDB request failed'))
-      })
-      const stored = await new Promise<{ bytes: ArrayBuffer; mime: string }>((res, rej) => {
-        const req = db.transaction('masters', 'readonly').objectStore('masters').get(id)
-        req.onsuccess = () => res(req.result as { bytes: ArrayBuffer; mime: string })
-        req.onerror = () => rej(req.error ?? new Error('IndexedDB request failed'))
-      })
-      db.close()
-
-      const blob = new Blob([stored.bytes], { type: stored.mime })
-      const bitmap = await createImageBitmap(blob)
-      // Read the dimensions before close(): closing an ImageBitmap zeroes them.
-      const width = bitmap.width
-      const height = bitmap.height
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      const ctx = canvas.getContext('2d')!
-      ctx.drawImage(bitmap, 0, 0)
-
-      const samples: Record<string, [number, number, number]> = {}
-      for (const point of points) {
-        const x = Math.round(point.u * (width - 1))
-        const y = Math.round(point.v * (height - 1))
-        const d = ctx.getImageData(x, y, 1, 1).data
-        samples[point.name] = [d[0]!, d[1]!, d[2]!]
-      }
-      bitmap.close()
-      return { width, height, samples }
-    },
-    { id, points: [...points] },
-  )
+  const response = await page.request.get(`/api/photos/${id}/master`)
+  expect(response.ok()).toBe(true)
+  const bytes = [...await response.body()]
+  return page.evaluate(async ({ bytes, points }) => {
+    const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: 'image/webp' }))
+    const { width, height } = bitmap
+    const canvas = document.createElement('canvas')
+    canvas.width = width; canvas.height = height
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(bitmap, 0, 0)
+    const samples: Record<string, [number, number, number]> = {}
+    for (const point of points) {
+      const d = ctx.getImageData(Math.round(point.u * (width - 1)), Math.round(point.v * (height - 1)), 1, 1).data
+      samples[point.name] = [d[0]!, d[1]!, d[2]!]
+    }
+    bitmap.close()
+    return { width, height, samples }
+  }, { bytes, points: [...points] })
 }
 
 /**

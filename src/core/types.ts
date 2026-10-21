@@ -1,7 +1,7 @@
 import type { DayKey } from './day.ts'
 
 /** Bumped only when the *shape* of a stored record changes. See storage/db.ts. */
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 /** Stable home for every photo created before albums existed. */
 export const DEFAULT_ALBUM_ID = 'selfies'
@@ -35,8 +35,8 @@ export interface PhotoMeta {
    * mirror setting change without corrupting older photos' alignment.
    */
   mirrored: boolean
+  timerSeconds?: number
   source: CaptureSource
-  /** Byte sizes, so Settings can report storage usage without loading pixels. */
   masterBytes: number
   thumbBytes: number
   /** Soft deletion timestamp. Null means the photo is in its album. */
@@ -82,13 +82,6 @@ export interface Settings {
   captureLongEdge: number
   /** Show the ghost at all. */
   ghostEnabled: boolean
-  onboardingCompleteAt: number | null
-  /**
-   * When the user last exported a backup. Null means never — the state that
-   * earns a single, dismissible reminder, because "I lost years of photos" is
-   * the loudest complaint in this whole app category.
-   */
-  lastExportAt: number | null
   /** The album capture and timeline currently point at. */
   activeAlbumId: string
   schema: number
@@ -100,8 +93,6 @@ export const DEFAULT_SETTINGS: Settings = {
   mirrorPreview: true,
   captureLongEdge: 1440,
   ghostEnabled: true,
-  onboardingCompleteAt: null,
-  lastExportAt: null,
   activeAlbumId: DEFAULT_ALBUM_ID,
   schema: SCHEMA_VERSION,
 }
