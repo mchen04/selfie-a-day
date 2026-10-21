@@ -49,7 +49,7 @@ export class SyncEngine {
     return Promise.all([this.chain, ...this.writes])
   }
 
-  refresh(): Promise<void> {
+  refresh(session?: ReturnType<typeof api.me>): Promise<void> {
     if (!this.active) return this.chain.then(() => undefined)
     this.refreshRequested = true
     if (this.refreshPending) return this.chain.then(() => undefined)
@@ -59,9 +59,11 @@ export class SyncEngine {
       try {
         do {
           this.refreshRequested = false
-          await requireUser(this.user.id)
+          const verified = requireUser(this.user.id, session)
+          if (!session) await verified
+          session = undefined
           if (!this.active) return
-          await this.pull()
+          await this.pull(verified)
           await this.flush()
           await this.pull()
           await this.reconcileGhosts()
@@ -88,17 +90,17 @@ export class SyncEngine {
     this.emit({ photos })
   }
 
-  private async pull() {
+  private async pull(verified?: Promise<void>) {
     let full = !this.state.cursor
     let delta
-    try { delta = await api.sync(full ? undefined : this.state.cursor) }
+    try { delta = (await Promise.all([api.sync(full ? undefined : this.state.cursor), verified]))[0] }
     catch (error) {
       if (full || !(error instanceof ApiError) || error.status !== 400 || error.code !== 'invalid_cursor') throw error
       if (!this.active) return
       this.emit({ cursor: '' })
       await this.persist()
       full = true
-      delta = await api.sync()
+      delta = (await Promise.all([api.sync(), verified]))[0]
     }
     if (!this.active) return
     const albums = new Map((full ? [] : this.state.albums).map((album) => [album.id, album]))

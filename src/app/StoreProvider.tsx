@@ -18,6 +18,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const engine = useRef<SyncEngine | null>(null)
   const settingsRef = useRef(DEFAULT_SETTINGS)
   const clearing = useRef<Promise<void> | null>(null)
+  const startup = useRef<AbortController | null>(null)
 
   const clearSession = useCallback(async (discard = false) => {
     if (clearing.current) return clearing.current
@@ -43,11 +44,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     finally { if (clearing.current === task) clearing.current = null }
   }, [])
 
-  const openAccount = useCallback(async (nextUser: User) => {
+  const openAccount = useCallback(async (nextUser: User, session?: ReturnType<typeof api.me>) => {
     await clearing.current
     if (engine.current?.user.id === nextUser.id) return
     const old = engine.current
-    if (old) await old.stop()
+    if (old) {
+      setUser(null)
+      setSync(null)
+      setUndoTrash(null)
+      setStatus('loading')
+      await old.stop()
+    }
     const next = new SyncEngine(nextUser, setSync)
     engine.current = next
     await cacheUser(nextUser)
@@ -60,27 +67,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setUser(nextUser)
     setStorageError(null)
     setStatus('ready')
-    void next.refresh()
+    void next.refresh(session)
   }, [])
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
+    startup.current = controller
     const unsubscribe = onSignedOut(() => { if (!cancelled) void clearSession().catch(() => undefined) })
     void (async () => {
       try {
         const cached = await cachedUser()
-        if (cancelled) return
-        if (cached) await openAccount(cached)
-        try {
-          const { user: current } = await api.me()
-          if (!cancelled) await openAccount(current)
-        } catch (error) {
-          if (cancelled) return
-          if (error instanceof ApiError && error.status === 401) return
+        if (cancelled || controller.signal.aborted) return
+        if (!cached) setStatus('signed-out')
+        const session = api.me(controller.signal, cached !== null)
+        const validation = session.then(({ user }) => user, (error: unknown) => {
+          if (cancelled || controller.signal.aborted) return null
+          if (error instanceof ApiError && error.status === 401) return null
           if (!cached) { setStatus('signed-out'); setStorageError('Connect to sign in. Your saved photos stay in your account.') }
-        }
+          return null
+        })
+        if (cached) await openAccount(cached, session)
+        const current = await validation
+        if (current && !cancelled && !controller.signal.aborted) await openAccount(current, session)
       } catch (error) {
-        if (!cancelled) { setStatus('error'); setStorageError(error instanceof Error ? error.message : 'Could not open device storage.') }
+        if (!cancelled && !controller.signal.aborted) { setStatus('error'); setStorageError(error instanceof Error ? error.message : 'Could not open device storage.') }
+      } finally {
+        if (startup.current === controller) startup.current = null
       }
     })()
     const refresh = () => { if (!document.hidden) void engine.current?.refresh() }
@@ -88,6 +101,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     document.addEventListener('visibilitychange', refresh)
     return () => {
       cancelled = true
+      controller.abort()
       unsubscribe()
       window.removeEventListener('online', refresh)
       document.removeEventListener('visibilitychange', refresh)
@@ -116,6 +130,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [currentEngine])
 
   const logout = useCallback(async () => {
+    startup.current?.abort()
     const current = currentEngine()
     if ('serviceWorker' in navigator) {
       const registration = await navigator.serviceWorker.getRegistration()
@@ -132,8 +147,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const actions = useMemo<AppContextValue['actions']>(() => ({
     savePhoto, updateSettings,
     signIn: async (username, password, create) => {
+      startup.current?.abort()
       const response = await (create ? api.signup(username, password) : api.login(username, password))
-      await openAccount(response.user)
+      await openAccount(response.user, Promise.resolve(response))
     },
     logout,
     retrySync: () => currentEngine().retryUploads(),

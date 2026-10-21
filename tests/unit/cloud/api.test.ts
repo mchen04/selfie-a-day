@@ -45,6 +45,24 @@ describe('API contract', () => {
     expect((error as ApiError).retryAfter).toBe(120)
     expect((error as ApiError).message).toContain('2 minute')
   })
+  it('does not sign out when a cancelled session check finishes reading a 401', async () => {
+    const response = reply({ error: 'unauthenticated' }, 401)
+    let respond: ((body: unknown) => void) | undefined
+    const body = new Promise<unknown>((resolve) => { respond = resolve })
+    const reading = vi.spyOn(response, 'json').mockReturnValue(body)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+    const signedOut = vi.fn()
+    const off = onSignedOut(signedOut)
+    try {
+      const controller = new AbortController()
+      const checking = api.me(controller.signal)
+      await vi.waitFor(() => expect(reading).toHaveBeenCalled())
+      controller.abort()
+      respond!({ error: 'unauthenticated' })
+      await expect(checking).rejects.toMatchObject({ name: 'AbortError' })
+      expect(signedOut).not.toHaveBeenCalled()
+    } finally { off() }
+  })
   it('maps restore conflicts to an actionable message', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply({ error: 'day_taken' }, 409)))
     await expect(api.patchPhoto(photo().id, null)).rejects.toThrow(/already has a photo/)

@@ -6,8 +6,9 @@ export function AccountScreen() {
   const [create, setCreate] = useState(true)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(storageError)
+  const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const message = error ?? storageError
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -40,7 +41,7 @@ export function AccountScreen() {
             enterKeyHint="go" required minLength={create ? 8 : 1} maxLength={256}
             value={password} onChange={(event) => setPassword(event.target.value)} />
         </label>
-        {error ? <p className="form-error" role="alert">{error}</p> : null}
+        {message ? <p className="form-error" role="alert">{message}</p> : null}
         <button type="submit" className="btn btn--primary btn--wide" disabled={busy} data-testid="account-submit">
           {busy ? 'One moment…' : create ? 'Create account' : 'Sign in'}
         </button>

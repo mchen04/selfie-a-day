@@ -50,8 +50,8 @@ export function onSignedOut(listener: () => void): () => void {
   return () => { signedOutListeners.delete(listener) }
 }
 
-export async function requireUser(userId: string): Promise<void> {
-  const { user } = await api.me()
+export async function requireUser(userId: string, session = api.me()): Promise<void> {
+  const { user } = await session
   if (user.id !== userId) {
     for (const listener of signedOutListeners) listener()
     throw new ApiError(401, 'unauthenticated')
@@ -62,8 +62,10 @@ async function request(path: string, init: RequestInit = {}, auth = true): Promi
   const headers = new Headers(init.headers)
   if (init.method && !['GET', 'HEAD'].includes(init.method)) headers.set('X-Selfie-CSRF', '1')
   const response = await fetch(`/api${path}`, { ...init, headers, credentials: 'same-origin', cache: 'no-store' })
+  init.signal?.throwIfAborted()
   if (!response.ok) {
     const body = await response.json().catch(() => ({})) as { error?: string }
+    init.signal?.throwIfAborted()
     if (response.status === 401 && auth) for (const listener of signedOutListeners) listener()
     const retry = response.headers.get('Retry-After') ?? '60'
     const seconds = /^\d+$/.test(retry) ? Number(retry) : Math.max(1, (Date.parse(retry) - Date.now()) / 1000)
@@ -81,7 +83,12 @@ export async function json<T>(path: string, method = 'GET', body?: unknown, auth
 }
 
 export const api = {
-  me: () => json<{ user: User }>('/auth/me'),
+  me: async (signal?: AbortSignal, auth = true) => {
+    const response = await request('/auth/me', signal ? { signal } : {}, auth)
+    const result = await response.json() as { user: User }
+    signal?.throwIfAborted()
+    return result
+  },
   login: (username: string, password: string) => json<{ user: User }>('/auth/login', 'POST', { username, password }, false),
   signup: (username: string, password: string) => json<{ user: User }>('/auth/signup', 'POST', { username, password }, false),
   logout: () => json<void>('/auth/logout', 'POST'),
