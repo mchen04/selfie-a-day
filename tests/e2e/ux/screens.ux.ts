@@ -31,6 +31,8 @@ for (const state of ['first-run', 'ghost', 'offline', 'uploading'] as const) {
         if (state === 'offline') { fixture.offline = true; if (browserName !== 'webkit') await page.context().setOffline(true) }
         await saveUxPhoto(page, fixture, info)
         await expect(page.getByTestId('cloud-status')).toContainText(state === 'offline' ? '1 photo to upload · Waiting for a connection.' : 'Uploading 1 photo…')
+        // Today is saved, so the shutter retakes it in either camera path.
+        await expect(page.getByTestId('shutter')).toHaveAccessibleName(/^Retake today's photo/)
       }
       await captureUx(page, info, `capture-${state}`, '[data-testid="shutter"]', { cameraPath: browserName === 'webkit' ? 'camera-roll fallback' : 'Chromium fake camera' })
     } finally {
@@ -52,7 +54,7 @@ for (const count of [0, 60]) {
   test(`timeline: ${count} photos`, async ({ page }, info) => {
     await openUx(page, { photos: count }, '/timeline')
     if (count === 0) await expect(page.getByTestId('timeline-empty')).toBeVisible()
-    await captureUx(page, info, `timeline-${count}`)
+    await captureUx(page, info, `timeline-${count}`, count ? undefined : '[data-testid="timeline-empty"] .btn')
     if (count) {
       await page.getByTestId('timeline-cell').last().scrollIntoViewIfNeeded()
       await captureUx(page, info, 'timeline-60-end', null)
@@ -109,11 +111,19 @@ for (const reminders of ['off', 'on', 'unsupported', 'not-installed', 'denied'] 
     await expect(toggle).toHaveAttribute('aria-checked', String(reminders === 'on'))
     await expect(page.locator('.reminder-row input')).toHaveCount(2)
     await expect(page.locator('.reminder-row input').first()).toHaveAttribute('type', 'time')
+    // These fixtures hold no photos, so there is nothing to download yet.
+    await expect(page.getByTestId('download-photos')).toBeDisabled()
     await captureUx(page, info, `settings-reminders-${reminders}`, '[data-testid="reminder-toggle-selfies"]')
     await page.getByTestId('logout').scrollIntoViewIfNeeded()
     await captureUx(page, info, `settings-reminders-${reminders}-logout`, null)
   })
 }
+
+test('settings: with photos', async ({ page }, info) => {
+  await openUx(page, { photos: 2 }, '/settings')
+  await expect(page.getByTestId('download-photos')).toBeEnabled()
+  await captureUx(page, info, 'settings-photos', '[data-testid="reminder-toggle-selfies"]')
+})
 
 for (const state of ['picker', 'create', 'rename'] as const) {
   test(`album: ${state}`, async ({ page }, info) => {

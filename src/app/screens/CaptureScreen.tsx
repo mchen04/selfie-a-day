@@ -244,7 +244,9 @@ export function CaptureScreen() {
     countdown.remaining !== null
       ? 'Cancel timer'
       : usingFileFallback
-        ? "Take today's photo with the camera app"
+        ? todayDone
+          ? "Retake today's photo with the camera app"
+          : "Take today's photo with the camera app"
         : needsStart
           ? 'Start the camera'
           : todayDone
@@ -384,7 +386,7 @@ export function CaptureScreen() {
             <span className="shutter__ring" />
             <span className="shutter__core">
               {countdown.remaining !== null ? <span className="shutter__cancel" aria-hidden="true" /> : null}
-              {usingFileFallback || needsStart ? <IconCamera size={26} /> : todayDone && countdown.remaining === null ? <IconRestore size={26} /> : null}
+              {needsStart ? <IconCamera size={26} /> : todayDone && countdown.remaining === null ? <IconRestore size={26} /> : usingFileFallback ? <IconCamera size={26} /> : null}
             </span>
           </button>
 
@@ -444,7 +446,7 @@ function CameraStatus({
 }) {
   if (usingFileFallback) {
     return (
-      <div className="frame__overlay" data-testid="camera-status" data-state="fallback">
+      <div className="frame__overlay frame__overlay--roll" data-testid="camera-status" data-state="fallback">
         <IconCamera size={30} />
         <p className="frame__overlay-title">Camera roll mode</p>
         <p className="frame__overlay-body">

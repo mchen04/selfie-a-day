@@ -20,8 +20,8 @@ export function simulatedInsets(width: number): Insets {
 /** `primary` names the thumb-reach target; null skips the check (scrolled or mid-task views). */
 export async function auditUx(page: Page, primary?: string | null): Promise<UxCheck[]> {
   return page.evaluate((primary) => {
-    const failures: Record<string, unknown[]> = { clipping: [], targets: [], labels: [], inputs: [], headers: [] }
-    const counts = { elements: 0, targets: 0, labels: 0, inputs: 0, headers: 0 }
+    const failures: Record<string, unknown[]> = { clipping: [], targets: [], wraps: [], labels: [], inputs: [], headers: [] }
+    const counts = { elements: 0, targets: 0, wraps: 0, labels: 0, inputs: 0, headers: 0 }
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]')
     const root = dialog ?? document.body
     const describe = (element: Element) => element.getAttribute('data-testid') ?? element.getAttribute('aria-label') ?? `${element.tagName.toLowerCase()}.${element.getAttribute('class') ?? ''}`
@@ -74,6 +74,21 @@ export async function auditUx(page: Page, primary?: string | null): Promise<UxCh
         counts.targets++
         if (box.width < 43.9 || box.height < 43.9) failures.targets!.push({ element: label, width: box.width, height: box.height })
       }
+      // A button label reads on one line; a wrapped or spilled label means the
+      // button is too narrow for its words at this width.
+      if (element.matches('.btn')) {
+        counts.wraps++
+        const tops: number[] = []
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          if (!node.textContent?.trim()) continue
+          const range = document.createRange()
+          range.selectNodeContents(node)
+          for (const rect of Array.from(range.getClientRects())) if (rect.width) tops.push(rect.top)
+        }
+        const lines = tops.sort((a, b) => a - b).filter((top, index) => index === 0 || top - tops[index - 1]! > 4).length
+        if (lines > 1 || element.scrollWidth > element.clientWidth + 1) failures.wraps!.push({ element: label, text: element.textContent?.trim(), lines, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth })
+      }
       if (text) {
         counts.labels++
         const truncated = element.scrollWidth > element.clientWidth + 1 && ['hidden', 'clip'].includes(style.overflowX)
@@ -122,11 +137,11 @@ export async function auditUx(page: Page, primary?: string | null): Promise<UxCh
       }
     }
     // Camera overlay content (icon, copy, buttons) must not run into the camera
-    // controls; an open dialog covers both. The icon is aria-hidden, so this list
-    // only needs rendered boxes.
+    // controls or sit under a notice; an open dialog covers all of them. The icon
+    // is aria-hidden, so this list only needs rendered boxes.
     for (const item of dialog ? [] : Array.from(document.querySelectorAll<Element>('.frame__overlay > *')).filter((item) => item.getClientRects().length > 0)) {
-      for (const control of controls.filter((control) => !control.closest('.frame__overlay'))) {
-        if (intersect(item.getBoundingClientRect(), control.getBoundingClientRect())) overlaps.push({ layer: describe(item), covers: describe(control) })
+      for (const other of [...controls.filter((control) => !control.closest('.frame__overlay')), ...layers]) {
+        if (intersect(item.getBoundingClientRect(), other.getBoundingClientRect())) overlaps.push({ layer: describe(item), covers: describe(other) })
       }
     }
     const checks: UxCheck[] = [

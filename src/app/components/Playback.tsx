@@ -308,18 +308,22 @@ export function Playback({
         </div>
 
         <div className="playback__row playback__row--actions">
-          <button
-            type="button"
-            className="btn"
-            onClick={() => {
-              setPlaying(false)
-              setOptionsOpen(true)
-            }}
-            data-testid="playback-options"
-          >
-            {rangeLabel}
-          </button>
-          {exporting ? <button type="button" className="btn" onClick={() => exportAbort.current?.abort()}>Cancel</button> : null}
+          {/* While a video renders, Cancel takes the options button's place so the progress keeps one line. */}
+          {exporting ? (
+            <button type="button" className="btn" onClick={() => exportAbort.current?.abort()}>Cancel</button>
+          ) : (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setPlaying(false)
+                setOptionsOpen(true)
+              }}
+              data-testid="playback-options"
+            >
+              {rangeLabel}
+            </button>
+          )}
           <button
             type="button"
             className="btn"

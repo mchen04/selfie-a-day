@@ -22,6 +22,7 @@ test('audit detects injected defects and accepts their repairs', async ({ page }
     <div id="clip"><button id="target">Tap</button></div>
     <div id="label" title="The complete accessible label">The complete accessible label</div>
     <input aria-label="Username" />
+    <button class="btn" id="wrap">Two words</button>
     <div class="capture__controls"><button id="primary">Save</button></div>
     <div class="toast" style="position: fixed; top: 200px; left: 0; width: 60px; height: 30px; pointer-events: none;">Saved</div>
     <div class="frame__overlay"><p data-testid="overlay-copy" style="position: fixed; top: 300px; left: 0; width: 60px; height: 20px; margin: 0;">Off</p></div>
@@ -34,12 +35,12 @@ test('audit detects injected defects and accepts their repairs', async ({ page }
   expect(safeAreaCheck(insets, await safeMetrics(page)).pass).toBe(false)
   await page.addStyleTag({ content: '.topbar { padding: calc(10px + var(--safe-top)) calc(10px + var(--safe-right)) 10px calc(10px + var(--safe-left)); } .capture__controls { padding: 10px; }' })
   expect(safeAreaCheck(insets, await safeMetrics(page)).pass).toBe(false)
-  await page.addStyleTag({ content: '#overflow { width: calc(100vw + 20px); } #clip { width: 20px; } #target { min-width: 20px; width: 20px; height: 20px; } input { font-size: 12px; } .topbar__title { width: 30px; } #primary { position: fixed; top: 0; left: 100px; } .toast { top: 0 !important; left: 100px !important; } [data-testid="overlay-copy"] { top: 0 !important; left: 100px !important; }' })
+  await page.addStyleTag({ content: '#overflow { width: calc(100vw + 20px); } #clip { width: 20px; } #target { min-width: 20px; width: 20px; height: 20px; } input { font-size: 12px; } .topbar__title { width: 30px; } #primary { position: fixed; top: 0; left: 100px; } .toast { top: 0 !important; left: 100px !important; } [data-testid="overlay-copy"] { top: 0 !important; left: 100px !important; } #wrap { width: 44px; }' })
   await page.locator('#label').evaluate((element) => element.removeAttribute('title'))
   const audit = await auditUx(page, '#primary')
   const failed = audit.filter((check) => !check.pass).map((check) => check.check)
-  expect(JSON.stringify(audit.find((check) => check.check === 'overlap')?.details)).toContain('"layer":"overlay-copy"')
-  expect(failed).toEqual(expect.arrayContaining(['overlap', 'horizontal-scroll', 'clipping', 'targets', 'labels', 'inputs', 'headers']))
+  expect(JSON.stringify(audit.find((check) => check.check === 'overlap')?.details)).toContain('"layer":"overlay-copy","covers":"div.toast"')
+  expect(failed).toEqual(expect.arrayContaining(['overlap', 'horizontal-scroll', 'clipping', 'targets', 'wraps', 'labels', 'inputs', 'headers']))
   if ((page.viewportSize()?.width ?? 1280) <= 430) expect(failed).toContain('thumb-reach')
   await startTapCount(page)
   await press(page.locator('#primary'), info)
