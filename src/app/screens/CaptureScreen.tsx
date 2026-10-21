@@ -16,6 +16,7 @@ import {
   IconAlert,
   IconCamera,
   IconChevronDown,
+  IconRestore,
   IconSettings,
   IconTimeline,
 } from '../components/Icons.tsx'
@@ -367,9 +368,7 @@ export function CaptureScreen() {
         />
 
         <div className="capture__actions">
-          <span className="capture__slot capture__slot--left">
-            {todayDone ? <span className="pill pill--done">Retake</span> : null}
-          </span>
+          <span className="capture__slot capture__slot--left" />
 
           <button
             type="button"
@@ -385,7 +384,7 @@ export function CaptureScreen() {
             <span className="shutter__ring" />
             <span className="shutter__core">
               {countdown.remaining !== null ? <span className="shutter__cancel" aria-hidden="true" /> : null}
-              {usingFileFallback || needsStart ? <IconCamera size={26} /> : null}
+              {usingFileFallback || needsStart ? <IconCamera size={26} /> : todayDone && countdown.remaining === null ? <IconRestore size={26} /> : null}
             </span>
           </button>
 
@@ -494,8 +493,8 @@ function CameraStatus({
           : 'Camera unavailable'
 
   return (
-    <div className="frame__overlay" data-testid="camera-status" data-state={state}>
-      <IconAlert size={28} />
+    <div className="frame__overlay frame__overlay--alert" data-testid="camera-status" data-state={state}>
+      <IconAlert size={24} />
       <p className="frame__overlay-title">{title}</p>
       <p className="frame__overlay-body">{message}</p>
       <div className="frame__overlay-actions">
@@ -506,7 +505,6 @@ function CameraStatus({
           Use a photo instead
         </button>
       </div>
-      <p className="tiny muted frame__overlay-foot">Your photos stay on this device either way.</p>
     </div>
   )
 }

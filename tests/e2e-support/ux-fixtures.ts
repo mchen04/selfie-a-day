@@ -11,6 +11,8 @@ export interface UxOptions {
   trash?: number
   reminders?: ReminderMode
   fallback?: boolean
+  /** getUserMedia rejects as if the user blocked the camera. */
+  cameraDenied?: boolean
   authError?: boolean
 }
 
@@ -68,8 +70,9 @@ export async function uxFixtures(page: Page, options: UxOptions = {}) {
     releaseUploads: () => { controls.holdUploads = false; releaseUploads?.() },
     releaseMasters: () => { controls.holdMasters = false; releaseMasters?.() },
   }
-  await page.addInitScript(({ fallback, reminders }) => {
-    if (fallback) Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: undefined })
+  await page.addInitScript(({ fallback, cameraDenied, reminders }) => {
+    if (cameraDenied) Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError')) } })
+    else if (fallback) Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: undefined })
     Object.defineProperty(navigator, 'standalone', { configurable: true, value: reminders !== 'not-installed' })
     if (reminders === 'not-installed') Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'iPhone AppleWebKit Safari' })
     if (reminders === 'unsupported') {
@@ -87,7 +90,7 @@ export async function uxFixtures(page: Page, options: UxOptions = {}) {
     }
     const registration = { pushManager: { getSubscription: () => Promise.resolve(subscription), subscribe: () => Promise.resolve(subscription) } }
     Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { ready: Promise.resolve(registration), getRegistration: () => Promise.resolve(registration), register: () => Promise.resolve(registration), addEventListener: () => undefined } })
-  }, { fallback: options.fallback ?? true, reminders: options.reminders ?? 'off' })
+  }, { fallback: options.fallback ?? true, cameraDenied: options.cameraDenied ?? false, reminders: options.reminders ?? 'off' })
 
   await page.route('**/api/**', async (route) => {
     if (controls.offline) return route.abort('internetdisconnected')

@@ -24,6 +24,7 @@ test('audit detects injected defects and accepts their repairs', async ({ page }
     <input aria-label="Username" />
     <div class="capture__controls"><button id="primary">Save</button></div>
     <div class="toast" style="position: fixed; top: 200px; left: 0; width: 60px; height: 30px; pointer-events: none;">Saved</div>
+    <div class="frame__overlay"><p data-testid="overlay-copy" style="position: fixed; top: 300px; left: 0; width: 60px; height: 20px; margin: 0;">Off</p></div>
   `)
   expect((await auditUx(page, '#primary')).filter((check) => !check.pass)).toEqual([])
   const insets = { top: 47, bottom: 34, left: 8, right: 8 }
@@ -33,9 +34,11 @@ test('audit detects injected defects and accepts their repairs', async ({ page }
   expect(safeAreaCheck(insets, await safeMetrics(page)).pass).toBe(false)
   await page.addStyleTag({ content: '.topbar { padding: calc(10px + var(--safe-top)) calc(10px + var(--safe-right)) 10px calc(10px + var(--safe-left)); } .capture__controls { padding: 10px; }' })
   expect(safeAreaCheck(insets, await safeMetrics(page)).pass).toBe(false)
-  await page.addStyleTag({ content: '#overflow { width: calc(100vw + 20px); } #clip { width: 20px; } #target { min-width: 20px; width: 20px; height: 20px; } input { font-size: 12px; } .topbar__title { width: 30px; } #primary { position: fixed; top: 0; left: 100px; } .toast { top: 0 !important; left: 100px !important; }' })
+  await page.addStyleTag({ content: '#overflow { width: calc(100vw + 20px); } #clip { width: 20px; } #target { min-width: 20px; width: 20px; height: 20px; } input { font-size: 12px; } .topbar__title { width: 30px; } #primary { position: fixed; top: 0; left: 100px; } .toast { top: 0 !important; left: 100px !important; } [data-testid="overlay-copy"] { top: 0 !important; left: 100px !important; }' })
   await page.locator('#label').evaluate((element) => element.removeAttribute('title'))
-  const failed = (await auditUx(page, '#primary')).filter((check) => !check.pass).map((check) => check.check)
+  const audit = await auditUx(page, '#primary')
+  const failed = audit.filter((check) => !check.pass).map((check) => check.check)
+  expect(JSON.stringify(audit.find((check) => check.check === 'overlap')?.details)).toContain('"layer":"overlay-copy"')
   expect(failed).toEqual(expect.arrayContaining(['overlap', 'horizontal-scroll', 'clipping', 'targets', 'labels', 'inputs', 'headers']))
   if ((page.viewportSize()?.width ?? 1280) <= 430) expect(failed).toContain('thumb-reach')
   await startTapCount(page)

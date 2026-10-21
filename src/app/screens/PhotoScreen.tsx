@@ -84,35 +84,30 @@ export function PhotoScreen({ id }: { id: string }) {
             {meta.width}×{meta.height}
           </span>
         </div>
-        <button
-          type="button"
-          className="iconbtn"
-          onClick={() => void onDelete()}
-          aria-label="Move photo to Trash"
-          data-testid="photo-delete"
-        >
-          <IconTrash />
-        </button>
       </header>
       <CloudStatus />
 
       <div className="photo__stage">
-        <div className="frame frame--static">
-          {pendingIds.includes(meta.id) ? <span className="upload-badge">Uploading</span> : null}
-          {image.url ? (
-            <img width={meta.width} height={meta.height} decoding="async" className="frame__still" src={image.url} alt={formatDayLabel(meta.dayKey)} data-testid="photo-image" />
-          ) : image.error ? (
-            <div className="frame__overlay">
-              <p className="frame__overlay-body">{image.error}</p>
-            </div>
-          ) : (
-            <div className="frame__overlay frame__overlay--quiet">
-              <span className="spinner" aria-hidden="true" />
-            </div>
-          )}
+        {/* The frame is absolutely positioned; the well keeps it inside the stage padding. */}
+        <div className="photo__well">
+          <div className="frame frame--static">
+            {pendingIds.includes(meta.id) ? <span className="upload-badge">Uploading</span> : null}
+            {image.url ? (
+              <img width={meta.width} height={meta.height} decoding="async" className="frame__still" src={image.url} alt={formatDayLabel(meta.dayKey)} data-testid="photo-image" />
+            ) : image.error ? (
+              <div className="frame__overlay">
+                <p className="frame__overlay-body">{image.error}</p>
+              </div>
+            ) : (
+              <div className="frame__overlay frame__overlay--quiet">
+                <span className="spinner" aria-hidden="true" />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
+      {/* One bottom bar keeps every photo action under the thumb. */}
       <nav className="photo__nav">
         <button
           type="button"
@@ -122,6 +117,15 @@ export function PhotoScreen({ id }: { id: string }) {
           data-testid="photo-older"
         >
           <IconChevronLeft size={18} /> Older
+        </button>
+        <button
+          type="button"
+          className="btn photo__trash"
+          onClick={() => void onDelete()}
+          aria-label="Move photo to Trash"
+          data-testid="photo-delete"
+        >
+          <IconTrash />
         </button>
         <button
           type="button"

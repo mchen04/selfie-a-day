@@ -74,7 +74,7 @@ test('taps: trash and undo', async ({ page }, info) => {
   await expect(page.getByTestId('undo-trash-action')).toBeVisible()
   await press(page.getByTestId('undo-trash-action'), info)
   await expect.poll(() => fixture.photos[0]?.deletedAt).toBeNull()
-  await recordTaps(page, info, 'Photo → Trash → Undo', 2)
+  await recordTaps(page, info, 'Photo → Trash → Undo', 2, [], [], true)
 })
 
 test('taps: download my photos', async ({ page }, info) => {

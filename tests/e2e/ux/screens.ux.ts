@@ -30,7 +30,7 @@ for (const state of ['first-run', 'ghost', 'offline', 'uploading'] as const) {
         // goes offline through failed API requests only.
         if (state === 'offline') { fixture.offline = true; if (browserName !== 'webkit') await page.context().setOffline(true) }
         await saveUxPhoto(page, fixture, info)
-        await expect(page.getByTestId('cloud-status')).toContainText(state === 'offline' ? /Offline|Waiting for a connection/ : 'uploading')
+        await expect(page.getByTestId('cloud-status')).toContainText(state === 'offline' ? '1 photo to upload · Waiting for a connection.' : 'Uploading 1 photo…')
       }
       await captureUx(page, info, `capture-${state}`, '[data-testid="shutter"]', { cameraPath: browserName === 'webkit' ? 'camera-roll fallback' : 'Chromium fake camera' })
     } finally {
@@ -40,6 +40,13 @@ for (const state of ['first-run', 'ghost', 'offline', 'uploading'] as const) {
     }
   })
 }
+
+test('capture: camera denied', async ({ page }, info) => {
+  await openUx(page, { photos: 1, cameraDenied: true })
+  await expect(page.getByTestId('camera-status')).toHaveAttribute('data-state', 'denied')
+  await expect(page.getByTestId('camera-use-library')).toBeVisible()
+  await captureUx(page, info, 'capture-camera-denied', '[data-testid="shutter"]')
+})
 
 for (const count of [0, 60]) {
   test(`timeline: ${count} photos`, async ({ page }, info) => {
@@ -53,10 +60,17 @@ for (const count of [0, 60]) {
   })
 }
 
-test('photo: saved image', async ({ page }, info) => {
+test('photo: saved image and undo', async ({ page }, info) => {
   await openUx(page, { photos: 2 }, '/photo/00000000000000000000')
   await expect(page.getByTestId('photo-image')).toBeVisible()
-  await captureUx(page, info, 'photo')
+  await captureUx(page, info, 'photo', '[data-testid="photo-delete"]')
+  // Hold the 7 s Undo window open while both screenshots are taken.
+  await page.clock.install()
+  await page.clock.pauseAt(Date.now() + 1_000)
+  await page.getByTestId('photo-delete').click()
+  await expect(page.getByTestId('undo-trash-action')).toBeVisible()
+  await expect(page.getByTestId('photo-image')).toBeVisible()
+  await captureUx(page, info, 'photo-undo', '[data-testid="undo-trash-action"]')
 })
 
 for (const state of ['empty', 'items', 'empty-armed', 'delete-armed'] as const) {

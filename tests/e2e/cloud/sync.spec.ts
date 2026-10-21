@@ -47,7 +47,7 @@ test('an offline capture queues locally and uploads after reconnect', async ({ p
   await waitForCameraLive(page)
   await context.setOffline(true)
   const id = await captureOnce(page)
-  await expect(page.getByTestId('cloud-status')).toContainText('uploading')
+  await expect(page.getByTestId('cloud-status')).toContainText('1 photo to upload · Waiting for a connection.')
   await context.setOffline(false)
   await expect.poll(async () => (await snapshot(page.request)).photos.some((photo) => photo.id === id), { timeout: 30_000 }).toBe(true)
   await expect.poll(async () => page.evaluate(async () => {

@@ -63,10 +63,10 @@ export function Reminders({ albums, onError }: { albums: Album[]; onError: (mess
   }
 
   return (
-    <section className="card reminders" aria-labelledby="reminders-title" data-testid="reminders">
-      <h2 className="section__title" id="reminders-title">Reminders</h2>
-      {reason ? <p className="tiny muted" id="reminders-reason">{reason}</p> : null}
-      {loadError ? <p className="tiny muted" role="alert">Could not load reminders. Reopen Settings to try again.</p> : null}
+    <section className="card settings__group reminders" aria-labelledby="reminders-title" data-testid="reminders">
+      <h2 className="settings__row reminders__title" id="reminders-title">Reminders</h2>
+      {reason ? <p className="tiny muted reminders__note" id="reminders-reason">{reason}</p> : null}
+      {loadError ? <p className="tiny muted reminders__note" role="alert">Could not load reminders. Reopen Settings to try again.</p> : null}
       {albums.filter((album) => album.deletedAt === null).map((album) => {
         const pref = prefs[album.id] ?? { albumId: album.id, enabled: false, time: '09:00', timeZone: album.timeZone ?? deviceTimeZone() }
         const disabled = !!reason || !loaded || pending.includes(album.id)

@@ -374,8 +374,9 @@
   margin-top: 4px;
 }
 
-.frame__overlay-foot {
-  margin: 2px 0 0;
+/* Clears the timer and flash buttons (8px + 44px) at the top of the frame. */
+.frame__overlay--alert {
+  padding-top: 60px;
 }
 
 .frame--static {
@@ -468,23 +469,6 @@
 
 .capture__slot--right {
   justify-content: flex-end;
-}
-
-.pill {
-  display: inline-flex;
-  align-items: center;
-  height: 28px;
-  padding: 0 11px;
-  border-radius: 999px;
-  font-size: 12.5px;
-  font-weight: 600;
-  background: var(--surface-2);
-  color: var(--muted);
-}
-
-.pill--done {
-  color: var(--accent);
-  background: rgb(94 224 184 / 12%);
 }
 
 /* 76px keeps the shutter comfortably past the 44px minimum target even when a
@@ -619,11 +603,13 @@
   color: var(--danger);
 }
 
+/* Just above the photo bar and the home indicator, under the thumb that
+   tapped Trash. */
 .undo-trash {
   position: absolute;
   left: 16px;
   right: 16px;
-  top: calc(var(--safe-top) + 66px);
+  bottom: calc(var(--safe-bottom) + 72px);
   z-index: 46;
   min-height: var(--tap);
   display: flex;
@@ -790,8 +776,21 @@
     calc(var(--safe-left) + 14px);
 }
 
+/* Older and Newer share what Trash leaves, so they fit a 320px screen. */
 .photo__nav .btn {
   flex: 1;
+  padding: 0 12px;
+}
+
+.photo__nav .photo__trash {
+  flex: none;
+  width: 56px;
+  padding: 0;
+}
+
+.photo__well {
+  position: relative;
+  height: 100%;
 }
 
 /* --- Trash ---------------------------------------------------------------- */

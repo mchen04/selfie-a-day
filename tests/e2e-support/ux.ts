@@ -24,7 +24,7 @@ export async function auditUx(page: Page, primary?: string | null): Promise<UxCh
     const counts = { elements: 0, targets: 0, labels: 0, inputs: 0, headers: 0 }
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]')
     const root = dialog ?? document.body
-    const describe = (element: Element) => element.getAttribute('data-testid') ?? element.getAttribute('aria-label') ?? `${element.tagName.toLowerCase()}.${element.className}`
+    const describe = (element: Element) => element.getAttribute('data-testid') ?? element.getAttribute('aria-label') ?? `${element.tagName.toLowerCase()}.${element.getAttribute('class') ?? ''}`
     const visible = (element: HTMLElement) => {
       const style = getComputedStyle(element)
       return !!element.getClientRects().length && style.visibility !== 'hidden' && style.display !== 'none' && !element.closest('.visually-hidden, [aria-hidden="true"]')
@@ -121,6 +121,14 @@ export async function auditUx(page: Page, primary?: string | null): Promise<UxCh
         if (intersect(box, other.getBoundingClientRect())) overlaps.push({ layer: describe(layer), covers: describe(other) })
       }
     }
+    // Camera overlay content (icon, copy, buttons) must not run into the camera
+    // controls; an open dialog covers both. The icon is aria-hidden, so this list
+    // only needs rendered boxes.
+    for (const item of dialog ? [] : Array.from(document.querySelectorAll<Element>('.frame__overlay > *')).filter((item) => item.getClientRects().length > 0)) {
+      for (const control of controls.filter((control) => !control.closest('.frame__overlay'))) {
+        if (intersect(item.getBoundingClientRect(), control.getBoundingClientRect())) overlaps.push({ layer: describe(item), covers: describe(control) })
+      }
+    }
     const checks: UxCheck[] = [
       { check: 'overlap', pass: overlaps.length === 0, details: { checked: layers.length, failures: overlaps } },
       { check: 'horizontal-scroll', pass: document.documentElement.scrollWidth <= innerWidth, details: { scrollWidth: document.documentElement.scrollWidth, innerWidth } },
@@ -146,7 +154,7 @@ export async function safeMetrics(page: Page) {
       const style = getComputedStyle(element)
       const box = element.getBoundingClientRect()
       const children = Array.from(element.children).map((child) => child.getBoundingClientRect()).filter((rect) => rect.height > 0)
-      return { selector, top: box.top, bottom: box.bottom, paddingTop: parseFloat(style.paddingTop), paddingBottom: parseFloat(style.paddingBottom),
+      return { selector, top: box.top, bottom: box.bottom, left: box.left, right: box.right, paddingTop: parseFloat(style.paddingTop), paddingBottom: parseFloat(style.paddingBottom),
         paddingLeft: parseFloat(style.paddingLeft), paddingRight: parseFloat(style.paddingRight),
         contentTop: Math.min(...children.map((rect) => rect.top)), contentBottom: Math.max(...children.map((rect) => rect.bottom)),
         contentLeft: Math.min(...children.map((rect) => rect.left)), contentRight: Math.max(...children.map((rect) => rect.right)), height: innerHeight, width: innerWidth }
@@ -160,11 +168,13 @@ export function safeAreaCheck(insets: Insets, after: Awaited<ReturnType<typeof s
     const bottom = bar.selector !== '.topbar' && bar.selector !== '.account'
     return { ...bar,
       pass: (!top || bar.contentTop >= insets.top - 1) && (!bottom || bar.contentBottom <= bar.height - insets.bottom + 1)
-        && bar.contentLeft >= insets.left - 1 && bar.contentRight <= bar.width - insets.right + 1,
+        && bar.contentLeft >= insets.left - 1 && bar.contentRight <= bar.width - insets.right + 1
+        // Content also stays inside the bar's own side padding (a button too wide for its share overflows it).
+        && bar.contentLeft >= bar.left + bar.paddingLeft - 1 && bar.contentRight <= bar.right - bar.paddingRight + 1,
     }
   })
   return { check: 'safe-area-simulation', pass: details.length > 0 && details.every((bar) => bar.pass),
-    details: { method: 'Override --safe-top/bottom/left/right in CSS and require bar content inside the insets; this is not a physical device check.', insets, bars: details } }
+    details: { method: 'Override --safe-top/bottom/left/right in CSS and require bar content inside the insets and the bar side padding; this is not a physical device check.', insets, bars: details } }
 }
 
 export async function captureUx(page: Page, testInfo: TestInfo, state: string, primary?: string | null, extra: Record<string, unknown> = {}) {
@@ -196,21 +206,32 @@ export async function press(locator: Locator, info: TestInfo) {
 export async function startTapCount(page: Page) {
   await page.evaluate(() => {
     const taps: string[] = []
-    Object.assign(window, { uxTaps: taps })
+    const points: Array<{ y: number; height: number }> = []
+    Object.assign(window, { uxTaps: taps, uxTapPoints: points })
     document.addEventListener('click', (event) => {
       if (!event.isTrusted || !(event.target instanceof Element)) return
       const target = event.target.closest('button, input, select, a, [role="switch"]')
-      if (target) taps.push(target.getAttribute('aria-label') ?? target.getAttribute('data-testid') ?? target.getAttribute('name') ?? target.textContent?.trim() ?? target.tagName)
+      if (!target) return
+      taps.push(target.getAttribute('aria-label') ?? target.getAttribute('data-testid') ?? target.getAttribute('name') ?? target.textContent?.trim() ?? target.tagName)
+      points.push({ y: event.clientY, height: innerHeight })
     }, { capture: true })
   })
 }
 
-export async function recordTaps(page: Page, testInfo: TestInfo, task: string, target?: number, nativeActions: string[] = [], notCounted: string[] = []) {
-  const path = await page.evaluate(() => (window as unknown as { uxTaps: string[] }).uxTaps)
+/** `reach` requires every counted tap on a phone viewport to land in its lower 45 %. */
+export async function recordTaps(page: Page, testInfo: TestInfo, task: string, target?: number, nativeActions: string[] = [], notCounted: string[] = [], reach = false) {
+  const { uxTaps: path, uxTapPoints: points } = await page.evaluate(() => {
+    const { uxTaps, uxTapPoints } = window as unknown as { uxTaps: string[]; uxTapPoints: Array<{ y: number; height: number }> }
+    return { uxTaps, uxTapPoints }
+  })
   const count = path.length + nativeActions.length
+  const phone = (page.viewportSize()?.width ?? 1280) <= 430
+  const positions = path.map((tap, index) => ({ tap, y: Math.round(points[index]!.y), viewportHeight: points[index]!.height, lower45: points[index]!.y >= points[index]!.height * .55 }))
   const result = { task, project: testInfo.project.name, viewport: page.viewportSize(), input: testInfo.project.use.hasTouch ? 'touch tap' : 'mouse click',
-    count, domTaps: path.length, path, nativeActions, notCounted, target: target ?? null, pass: target === undefined || count <= target }
+    count, domTaps: path.length, path, positions, inThumbZone: phone ? positions.filter((position) => position.lower45).length : null,
+    nativeActions, notCounted, target: target ?? null, pass: (target === undefined || count <= target) && (!reach || !phone || positions.every((position) => position.lower45)) }
   await testInfo.attach('ux-taps', { body: JSON.stringify(result), contentType: 'application/json' })
   expect.soft(count, `${task}: the page records at least one user action`).toBeGreaterThan(0)
   if (target !== undefined) expect.soft(count, `${task}: ${path.join(' → ')}`).toBeLessThanOrEqual(target)
+  if (reach && phone) for (const position of positions) expect.soft(position.lower45, `${task}: ${position.tap} at y=${position.y} of ${position.viewportHeight}`).toBe(true)
 }

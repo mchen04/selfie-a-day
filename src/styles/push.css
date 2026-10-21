@@ -1,9 +1,12 @@
-.reminders { display: grid; gap: 0; min-width: 0; padding: 10px 14px 0; }
-.reminders > h2, .reminders > p { margin-bottom: 4px; }
-.reminder-row { display: grid; grid-template-columns: minmax(0, 1fr) 104px 52px; align-items: center; gap: 8px; min-height: 44px; }
-.reminder-row + .reminder-row { border-top: 1px solid var(--line); }
+/* Reminders is one more Settings group: a bold first row like the album name,
+   then 44px rows whose time sits inline like the other row fields. */
+.reminders__title { margin: 0; font-size: 15px; font-weight: 700; }
+.reminders__note { margin: -6px 0 10px; }
+.reminder-row { display: grid; grid-template-columns: minmax(0, 1fr) 104px 52px; align-items: center; gap: 8px; min-height: 44px; border-top: 1px solid var(--line); }
 .reminder-row__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
-.reminder-row__time { width: 104px; min-width: 0; min-height: 44px; padding: 4px; border: 0; border-radius: 8px; color: var(--text); background: var(--surface-2); font: inherit; font-size: 16px; text-align: center; }
+.reminder-row__time { width: 104px; min-width: 0; min-height: 44px; padding: 4px 0; border: 0; border-radius: 8px; color: var(--muted); background: transparent; font: inherit; font-size: 16px; text-align: right; }
+.reminder-row__time:focus { background: var(--surface-2); }
 .reminder-row__time:disabled { opacity: .45; cursor: default; }
 /* Desktop Chromium adds a clock button inside the field. */
 @media (hover: hover) and (pointer: fine) { .reminder-row { grid-template-columns: minmax(0, 1fr) 132px 52px; } .reminder-row__time { width: 132px; } }
+.reminder-row__time::-webkit-date-and-time-value { text-align: right; }
