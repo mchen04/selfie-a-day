@@ -115,6 +115,81 @@ describe('accounts and sessions in workerd', () => {
     expect(reset.status).toBe(401)
   })
 
+  it('blocks the thirtieth daily failure even with a fresh fifteen-minute window', async () => {
+    const user = await h.user()
+    const wrongPassword = randomBytes(18).toString('base64url')
+    for (let index = 0; index < 29; index++) {
+      const response = await h.request('/api/auth/login', {
+        method: 'POST', json: { username: ` ${user.username.toUpperCase()} `, password: wrongPassword },
+        ip: `198.51.100.${index + 1}`, now: TEST_NOW + Math.floor(index / 10) * 900000,
+      })
+      expect(response.status).toBe(401)
+    }
+    const now = TEST_NOW + 45 * 60000
+    const blocked = await h.request('/api/auth/login', {
+      method: 'POST', json: { username: user.username, password: wrongPassword }, ip: '198.51.100.30', now,
+    })
+    expect(blocked.status).toBe(429)
+    expect(await blocked.json()).toEqual({ error: 'too_many_attempts' })
+    expect(blocked.headers.get('Retry-After')).toBe('83700')
+    const correct = await h.request('/api/auth/login', {
+      method: 'POST', json: { username: user.username, password: TEST_PASSWORD }, ip: '198.51.100.31', now: now + 1,
+    })
+    expect(correct.status).toBe(429)
+    expect(correct.headers.get('Retry-After')).toBe('83700')
+  })
+
+  it('keeps the daily failure count and window after a successful login', async () => {
+    const user = await h.user()
+    const key = `login-user-day:${user.username}`
+    await h.sql('INSERT INTO auth_attempts (key, window_start, count) VALUES (?, ?, ?)', key, TEST_NOW, 29)
+    const now = TEST_NOW + 3600000
+    const success = await h.request('/api/auth/login', {
+      method: 'POST', json: { username: user.username, password: TEST_PASSWORD }, now,
+    })
+    expect(success.status).toBe(200)
+    const daily = await h.env.DB.prepare('SELECT window_start, count FROM auth_attempts WHERE key = ?').bind(key).first()
+    expect(daily).toEqual({ window_start: TEST_NOW, count: 29 })
+    const blocked = await h.request('/api/auth/login', {
+      method: 'POST', json: { username: user.username, password: randomBytes(18).toString('base64url') }, now: now + 1,
+    })
+    expect(blocked.status).toBe(429)
+    expect(blocked.headers.get('Retry-After')).toBe('82800')
+  })
+
+  it('reopens the daily login window exactly twenty-four hours after its start', async () => {
+    const user = await h.user()
+    const key = `login-user-day:${user.username}`
+    await h.sql('INSERT INTO auth_attempts (key, window_start, count) VALUES (?, ?, ?)', key, TEST_NOW, 30)
+    const end = TEST_NOW + 24 * 3600000
+    const blocked = await h.request('/api/auth/login', {
+      method: 'POST', json: { username: user.username, password: TEST_PASSWORD }, now: end - 1,
+    })
+    expect(blocked.status).toBe(429)
+    expect(blocked.headers.get('Retry-After')).toBe('1')
+    const reopened = await h.request('/api/auth/login', {
+      method: 'POST', json: { username: user.username, password: randomBytes(18).toString('base64url') }, now: end,
+    })
+    expect(reopened.status).toBe(401)
+    const daily = await h.env.DB.prepare('SELECT window_start, count FROM auth_attempts WHERE key = ?').bind(key).first()
+    expect(daily).toEqual({ window_start: end, count: 1 })
+    expect((await h.request('/api/auth/login', {
+      method: 'POST', json: { username: user.username, password: TEST_PASSWORD }, now: end + 1,
+    })).status).toBe(200)
+  })
+
+  it('keeps authenticated sessions usable while the daily login cap is active', async () => {
+    const user = await h.user()
+    await h.sql('INSERT INTO auth_attempts (key, window_start, count) VALUES (?, ?, ?)', `login-user-day:${user.username}`, TEST_NOW, 30)
+    const blocked = await h.request('/api/auth/login', {
+      method: 'POST', cookie: user.cookie, json: { username: user.username, password: TEST_PASSWORD },
+    })
+    expect(blocked.status).toBe(429)
+    const me = await h.request('/api/auth/me', { cookie: user.cookie })
+    expect(me.status).toBe(200)
+    expect(await me.json()).toEqual({ user: { id: user.id, username: user.username } })
+  })
+
   it('limits fifty login failures per IP across usernames', async () => {
     const ip = '203.0.113.55'
     for (let i = 0; i < 50; i++) {

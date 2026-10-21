@@ -122,7 +122,9 @@ async function login(request: Request, env: Env, now: number): Promise<Response>
   const body = await readJson(request)
   const username = normalizeUsername(body.username)
   const usernameKey = `login-user:${username.slice(0, 32)}`
+  const dailyUsernameKey = `login-user-day:${username.slice(0, 32)}`
   const ipKey = `login-ip:${clientIp(request)}`
+  await assertRate(env, [dailyUsernameKey], 30, DAY, now)
   await assertRate(env, [usernameKey], 10, LOGIN_WINDOW, now)
   await assertRate(env, [ipKey], 50, LOGIN_WINDOW, now)
   const user = validUsername(username)
@@ -133,6 +135,8 @@ async function login(request: Request, env: Env, now: number): Promise<Response>
   if (!valid || !user) {
     await incrementAttempt(env, usernameKey, LOGIN_WINDOW, now)
     await incrementAttempt(env, ipKey, LOGIN_WINDOW, now)
+    const daily = await incrementAttempt(env, dailyUsernameKey, DAY, now)
+    if (daily.count >= 30) throw rateError(daily.window_start, DAY, now)
     throw new HttpError(401, 'invalid_credentials')
   }
   await env.DB.prepare('DELETE FROM auth_attempts WHERE key = ?').bind(usernameKey).run()
