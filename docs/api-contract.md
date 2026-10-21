@@ -138,7 +138,7 @@ The socket-free mode uses SQLite and the same scheduler code.
 Additional browser checks cover retained uploads after cookie loss and the inline Empty confirmation.
 The existing Trash browser flow now confirms permanent deletion with its second tap.
 Workerd coverage also sends twenty concurrent wrong logins through the real Worker entry point.
-These browser and workerd checks require the mini.
+The supervisor runs these browser and Miniflare checks outside the sandbox.
 
 Album IDs remain globally unique.
 PUT with another owner's album ID returns 404 without creating an album.
@@ -164,7 +164,7 @@ A socket-free SQLite check applies every migration through `unstable_splitSqlQue
 Album revisions advance from 1 to 2 after an update, which confirms trigger bodies remain intact.
 The browser check now asserts signup returns 201 before waiting for capture.
 It retains the two-tap, decrypted reminder, duplicate-cron and photo-suppression assertions.
-`tests/e2e/push.spec.ts` still needs execution on the mini to confirm the complete browser path.
+The supervisor runs `tests/e2e/push.spec.ts` to confirm the complete browser path.
 
 The push check triggers `/cdn-cgi/local/scheduled` with `cron` and epoch-millisecond `time` parameters.
 It requires the scheduled handler's `ok` response before checking delivery.
@@ -176,3 +176,19 @@ Requests during one pass coalesce into one follow-up pass.
 The regression `pulls a newer untimed retake when refresh arrives during a ghost download` reproduces the camera timer failure deterministically.
 It holds the old ghost download, adds a newer remote retake and requests another refresh.
 The completed refresh exposes the newer photo and its Off timer.
+
+## Native push delivery regression
+
+Workerd rejects Fetch's `redirect: 'error'` before sending any HTTP request.
+The sender now uses `manual`; a redirect response counts as a failed delivery and remains unfollowed.
+`worker/test/push/runtime.test.ts` reproduces the native TypeError without opening a socket.
+It runs the browser test's original HTTP subject, generated P-256 keys and loopback URL inside workerd.
+An in-memory outbound service checks the encrypted POST and returns 201.
+It also checks an HTTPS subject with a padded short scalar and an unfollowed 302 response.
+The HTTP subject does not cause the observed throw; the browser test now uses the required HTTPS subject.
+The browser test also pads generated private scalars to 32 bytes.
+
+The scheduler reports failed HTTP responses and thrown sends in its `failed` count.
+Thrown sends log the error name and message without a stack.
+The log redacts keys, endpoint addresses, payload fields and the user ID before truncation.
+`worker/test/push/push.test.ts` checks the count, redaction, deduplication and nudge suppression after a thrown send.

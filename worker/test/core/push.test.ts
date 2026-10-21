@@ -23,10 +23,13 @@ beforeEach(async () => {
   await db.exec("INSERT INTO users VALUES ('synthetic', 'synthetic', 'synthetic', 0); INSERT INTO albums (user_id, id, name, created_at, updated_at) VALUES ('synthetic', 'selfies', 'Selfies', 0, 0)")
   const pair = createECDH('prime256v1')
   pair.generateKeys()
+  const privateKey = Buffer.alloc(32)
+  const privateBytes = pair.getPrivateKey()
+  privateBytes.copy(privateKey, privateKey.length - privateBytes.length)
   env = {
     DB: db, PHOTOS: {} as Env['PHOTOS'], COOKIE_SECURE: 'false', ALLOWED_ORIGINS: origin, PUSH_ALLOW_INSECURE_ENDPOINTS: 'true',
     VAPID_PUBLIC_KEY: pair.getPublicKey().toString('base64url'),
-    VAPID_PRIVATE_KEY: pair.getPrivateKey().toString('base64url'), VAPID_SUBJECT: origin,
+    VAPID_PRIVATE_KEY: privateKey.toString('base64url'), VAPID_SUBJECT: origin,
   }
   vi.mocked(authenticate).mockResolvedValue({ user: { id: 'synthetic', username: 'synthetic' }, id: 'synthetic-session' })
 })

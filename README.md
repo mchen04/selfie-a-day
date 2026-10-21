@@ -86,10 +86,11 @@ They generate throwaway keys and decrypt delivered messages.
 When a sandbox blocks sockets, run only the socket-free checks:
 
 ```sh
-SELFIE_PUSH_TEST_MODE=sqlite npx vitest run --config worker/vitest.config.ts worker/test/push/push.test.ts worker/test/core/push.test.ts worker/test/core/local-api.test.ts worker/test/core/scheduled.test.ts worker/test/core/security.test.ts worker/test/core/password.test.ts
+SELFIE_PUSH_TEST_MODE=sqlite npx vitest run --config worker/vitest.config.ts worker/test/push/push.test.ts worker/test/push/runtime.test.ts worker/test/core/push.test.ts worker/test/core/local-api.test.ts worker/test/core/scheduled.test.ts worker/test/core/security.test.ts worker/test/core/password.test.ts
 ```
 
 This checks SQL, encryption and scheduling with SQLite and an in-memory receiver.
+The runtime test also runs native workerd encryption and redirect handling without sockets.
 It does not replace Miniflare or browser verification.
 Test caches stay in the git-ignored repository path `worker/test/support/.vite`.
 

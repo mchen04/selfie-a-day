@@ -88,7 +88,7 @@ export async function createPushSender(env: PushEnv, now: number) {
       topics.set(payload.albumId, topic)
     }
     return fetch(subscription.endpoint, {
-      method: 'POST', redirect: 'error', body,
+      method: 'POST', redirect: 'manual', body,
       headers: {
         Authorization: `vapid t=${await token}, k=${env.VAPID_PUBLIC_KEY}`,
         TTL: '14400', Urgency: 'normal', Topic: await topic,

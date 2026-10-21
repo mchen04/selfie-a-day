@@ -189,8 +189,8 @@ describe('scheduler and Web Push encryption', () => {
     await subscribe()
     await pref('09:00', 'America/Los_Angeles')
     await fixture.env.DB.prepare("UPDATE albums SET time_zone = 'America/Los_Angeles' WHERE user_id = 'alice' AND id = 'selfies'").run()
-    expect(await runPushScheduler(fixture.env, at('2026-07-01T15:59:00Z'))).toEqual({ sent: 0, skipped: 1, removed: 0 })
-    expect(await runPushScheduler(fixture.env, at('2026-07-01T16:00:00Z'))).toEqual({ sent: 1, skipped: 0, removed: 0 })
+    expect(await runPushScheduler(fixture.env, at('2026-07-01T15:59:00Z'))).toEqual({ sent: 0, skipped: 1, removed: 0, failed: 0 })
+    expect(await runPushScheduler(fixture.env, at('2026-07-01T16:00:00Z'))).toEqual({ sent: 1, skipped: 0, removed: 0, failed: 0 })
     expect(fixture.received).toHaveLength(1)
     expect(fixture.received[0]?.payload).toEqual({ title: 'Selfies', body: "Time for today's photo.", albumId: 'selfies', tag: 'album-selfies', url: '/?album=selfies' })
     expect(fixture.received[0]?.headers).toMatchObject({ ttl: '14400', urgency: 'normal', 'content-encoding': 'aes128gcm', 'content-type': 'application/octet-stream' })
@@ -232,7 +232,7 @@ describe('scheduler and Web Push encryption', () => {
   it('does not catch up at the end of the three-hour morning window', async () => {
     await subscribe()
     await pref()
-    expect(await runPushScheduler(fixture.env, at('2026-07-01T12:00:00Z'))).toEqual({ sent: 0, skipped: 1, removed: 0 })
+    expect(await runPushScheduler(fixture.env, at('2026-07-01T12:00:00Z'))).toEqual({ sent: 0, skipped: 1, removed: 0, failed: 0 })
     expect(fixture.received).toHaveLength(0)
   })
 
@@ -338,7 +338,7 @@ describe('scheduler and Web Push encryption', () => {
   it.each(['/gone', '/missing'])('deletes a subscription returning 404 or 410 at %s', async path => {
     await subscribe(path)
     await pref()
-    expect(await runPushScheduler(fixture.env, at('2026-07-01T09:00:00Z'))).toEqual({ sent: 0, skipped: 0, removed: 1 })
+    expect(await runPushScheduler(fixture.env, at('2026-07-01T09:00:00Z'))).toEqual({ sent: 0, skipped: 0, removed: 1, failed: 0 })
     expect(await fixture.env.DB.prepare('SELECT endpoint FROM push_subscriptions').first()).toBeNull()
   })
 
@@ -346,7 +346,7 @@ describe('scheduler and Web Push encryption', () => {
     await subscribe('/gone')
     await subscribe('/push')
     await pref('18:30')
-    expect(await runPushScheduler(fixture.env, at('2026-07-01T20:30:00Z'))).toEqual({ sent: 2, skipped: 0, removed: 1 })
+    expect(await runPushScheduler(fixture.env, at('2026-07-01T20:30:00Z'))).toEqual({ sent: 2, skipped: 0, removed: 1, failed: 0 })
     expect(fixture.received).toHaveLength(3)
   })
 
@@ -366,11 +366,37 @@ describe('scheduler and Web Push encryption', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     await subscribe('/fail')
     await pref()
-    expect(await runPushScheduler(fixture.env, at('2026-07-01T09:00:00Z'))).toEqual({ sent: 0, skipped: 1, removed: 0 })
+    expect(await runPushScheduler(fixture.env, at('2026-07-01T09:00:00Z'))).toEqual({ sent: 0, skipped: 1, removed: 0, failed: 1 })
     expect((await runPushScheduler(fixture.env, at('2026-07-01T09:05:00Z'))).sent).toBe(0)
     expect((await runPushScheduler(fixture.env, at('2026-07-01T20:30:00Z'))).sent).toBe(0)
     expect(fixture.received).toHaveLength(1)
     expect(error).toHaveBeenCalledWith('Push delivery failed', 503)
+  })
+
+  it('counts thrown deliveries and logs the error name and message without retrying', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    await subscribe()
+    await pref()
+    const send = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Network connection lost'))
+    expect(await runPushScheduler(fixture.env, at('2026-07-01T09:00:00Z'))).toMatchObject({ sent: 0, skipped: 1, failed: 1 })
+    expect(log).toHaveBeenCalledExactlyOnceWith('Push delivery failed', { name: 'TypeError', message: 'Network connection lost' })
+    expect((await runPushScheduler(fixture.env, at('2026-07-01T09:05:00Z'))).sent).toBe(0)
+    expect((await runPushScheduler(fixture.env, at('2026-07-01T20:30:00Z'))).sent).toBe(0)
+    expect(send).toHaveBeenCalledOnce()
+  })
+
+  it('redacts subscription, key, payload and user data from thrown delivery messages', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    await subscribe()
+    await pref()
+    const sensitive = [fixture.endpoint, `${fixture.endpoint}/push`, 'alice', 'selfies', 'Selfies',
+      "Time for today's photo.", 'album-selfies', '/?album=selfies', fixture.env.VAPID_PUBLIC_KEY,
+      fixture.env.VAPID_PRIVATE_KEY!, fixture.keys.point.toString('base64url'), fixture.keys.auth.toString('base64url')]
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError(`Fetch failed: ${sensitive.join(' | ')}`))
+    await runPushScheduler(fixture.env, at('2026-07-01T09:00:00Z'))
+    expect(log).toHaveBeenCalledExactlyOnceWith('Push delivery failed', {
+      name: 'TypeError', message: `Fetch failed: ${sensitive.map(() => '[redacted]').join(' | ')}`,
+    })
   })
 
   it('sends nothing for disabled preferences, missing subscriptions or another user albums', async () => {
@@ -378,7 +404,7 @@ describe('scheduler and Web Push encryption', () => {
     await pref('09:00', 'UTC', 'selfies', 'alice', false)
     await pref('09:00', 'UTC', 'selfies', 'bob')
     await fixture.env.DB.prepare("INSERT INTO push_prefs VALUES ('alice', 'album-bbbbbbbbbbbbbbbbbbbb', 1, '09:00', 'UTC', 0)").run()
-    expect(await runPushScheduler(fixture.env, at('2026-07-01T09:00:00Z'))).toEqual({ sent: 0, skipped: 0, removed: 0 })
+    expect(await runPushScheduler(fixture.env, at('2026-07-01T09:00:00Z'))).toEqual({ sent: 0, skipped: 0, removed: 0, failed: 0 })
     expect(fixture.received).toHaveLength(0)
   })
 
@@ -389,8 +415,8 @@ describe('scheduler and Web Push encryption', () => {
       await fixture.env.DB.prepare('INSERT INTO albums VALUES (?, ?, ?, NULL, 0, 0, NULL)').bind('alice', albumId, `Album ${index}`).run()
       await pref('09:00', 'UTC', albumId)
     }
-    expect(await runPushScheduler(fixture.env, at('2026-07-01T09:00:00Z'))).toEqual({ sent: 40, skipped: 1, removed: 0 })
-    expect(await runPushScheduler(fixture.env, at('2026-07-01T09:05:00Z'))).toEqual({ sent: 10, skipped: 4, removed: 0 })
+    expect(await runPushScheduler(fixture.env, at('2026-07-01T09:00:00Z'))).toEqual({ sent: 40, skipped: 1, removed: 0, failed: 0 })
+    expect(await runPushScheduler(fixture.env, at('2026-07-01T09:05:00Z'))).toEqual({ sent: 10, skipped: 4, removed: 0, failed: 0 })
     expect(fixture.received).toHaveLength(50)
   })
 

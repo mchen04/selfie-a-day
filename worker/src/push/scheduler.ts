@@ -19,8 +19,22 @@ function localTime(now: number, timeZone: string) {
   return { dayKey: `${part('year')}-${part('month')}-${part('day')}`, minutes: Number(part('hour')) * 60 + Number(part('minute')) }
 }
 
-export async function runPushScheduler(env: PushEnv, now: number): Promise<{ sent: number; skipped: number; removed: number }> {
-  const result = { sent: 0, skipped: 0, removed: 0 }
+function deliveryError(error: unknown, env: PushEnv, subscription: Subscription, payload: PushPayload, userId: string) {
+  if (!(error instanceof Error)) return { name: 'UnknownError', message: 'Unknown delivery error' }
+  const endpoint = new URL(subscription.endpoint)
+  const sensitive = [env.VAPID_PRIVATE_KEY ?? '', env.VAPID_PUBLIC_KEY, subscription.p256dh, subscription.auth,
+    subscription.endpoint, endpoint.origin, endpoint.host, endpoint.hostname, userId,
+    payload.title, payload.body, payload.albumId, payload.tag, payload.url]
+    .filter(Boolean).sort((a, b) => b.length - a.length)
+  const redact = (value: string) => {
+    for (const secret of sensitive) value = value.replaceAll(secret, '[redacted]')
+    return value.replace(/(?:https?:\/\/|mailto:)[^\s"'<>]+/gi, '[redacted]').slice(0, 512)
+  }
+  return { name: redact(error.name), message: redact(error.message) }
+}
+
+export async function runPushScheduler(env: PushEnv, now: number): Promise<{ sent: number; skipped: number; removed: number; failed: number }> {
+  const result = { sent: 0, skipped: 0, removed: 0, failed: 0 }
   if (!env.VAPID_PRIVATE_KEY || !env.VAPID_PUBLIC_KEY) return result
   const prefs = await env.DB.prepare(`SELECT p.user_id, p.album_id, p.time, a.name,
     coalesce(a.time_zone, (SELECT s.time_zone FROM push_subscriptions s WHERE s.user_id = p.user_id
@@ -116,12 +130,14 @@ export async function runPushScheduler(env: PushEnv, now: number): Promise<{ sen
             }
           } else {
             result.skipped++
+            result.failed++
             console.error('Push delivery failed', response.status)
           }
           await response.body?.cancel()
-        } catch {
+        } catch (error) {
           result.skipped++
-          console.error('Push delivery failed')
+          result.failed++
+          console.error('Push delivery failed', deliveryError(error, env, subscription, payload, pref.user_id))
         }
       }
     }

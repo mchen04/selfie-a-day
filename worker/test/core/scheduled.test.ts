@@ -40,7 +40,7 @@ describe('independent scheduled jobs', () => {
   beforeEach(() => {
     cleanup.mockReset().mockResolvedValue(undefined)
     purge.mockReset().mockResolvedValue(undefined)
-    push.mockReset().mockResolvedValue({ sent: 0, skipped: 0, removed: 0 })
+    push.mockReset().mockResolvedValue({ sent: 0, skipped: 0, removed: 0, failed: 0 })
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
   })
   afterEach(() => { vi.restoreAllMocks() })

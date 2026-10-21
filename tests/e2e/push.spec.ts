@@ -36,6 +36,9 @@ test('two taps enable one encrypted reminder; a saved photo suppresses the eveni
   const auth = randomBytes(16)
   const vapid = createECDH('prime256v1')
   vapid.generateKeys()
+  const privateKey = Buffer.alloc(32)
+  const privateBytes = vapid.getPrivateKey()
+  privateBytes.copy(privateKey, privateKey.length - privateBytes.length)
   const received: unknown[] = []
   const errors: string[] = []
   const server = createServer((request, response) => {
@@ -69,7 +72,7 @@ test('two taps enable one encrypted reminder; a saved photo suppresses the eveni
       r2_buckets: [{ binding: 'PHOTOS', bucket_name: 'push-test-photos' }],
       vars: {
         ALLOWED_ORIGINS: origin, COOKIE_SECURE: 'false', PUSH_ALLOW_INSECURE_ENDPOINTS: 'true',
-        VAPID_PUBLIC_KEY: vapid.getPublicKey().toString('base64url'), VAPID_PRIVATE_KEY: vapid.getPrivateKey().toString('base64url'), VAPID_SUBJECT: origin,
+        VAPID_PUBLIC_KEY: vapid.getPublicKey().toString('base64url'), VAPID_PRIVATE_KEY: privateKey.toString('base64url'), VAPID_SUBJECT: 'https://selfie-a-day.example',
       },
     }))
     const database = await getPlatformProxy<{ DB: { prepare: (sql: string) => { run: () => Promise<unknown> } } }>({
