@@ -42,6 +42,7 @@ beforeEach(async () => {
       return Promise.resolve(reply({ user }))
     }
     if (url === '/api/auth/logout') { user = null; return Promise.resolve(new Response(null, { status: 204 })) }
+    if (init?.method === 'PUT' && user?.id !== owner.id) return Promise.resolve(reply({ error: 'user_mismatch' }, 409))
     if (url.startsWith('/api/sync') && user?.id !== owner.id) return Promise.resolve(reply({ albums: [defaultAlbum()], photos: [], removed: [], cursor: 'other', serverTime: 1 }))
     return original(url, init)
   })
@@ -61,6 +62,21 @@ async function expire() {
 }
 
 describe('expired account sessions', () => {
+  it('signs out after an upload finds another account and resumes only for the original owner', async () => {
+    user = { id: 'synthetic-b', username: 'synthetic-b' }
+    await act(async () => { await app.actions.retrySync() })
+    await ready('signed-out')
+    expect(await cachedUser()).toBeNull()
+    expect(await listPending(owner.id)).toHaveLength(1)
+    expect(await listPending(user.id)).toEqual([])
+    expect(remote.uploadIds).toEqual([])
+    await act(async () => { await app.actions.signIn(owner.username, crypto.randomUUID(), false) })
+    await ready('ready')
+    await act(async () => { await app.actions.retrySync() })
+    expect(remote.uploadIds).toEqual([entry.meta.id])
+    expect(await listPending(owner.id)).toEqual([])
+  })
+
   it('keeps queued photos and caches on 401 and resumes uploads for the same user', async () => {
     await expire()
     expect(await cachedUser()).toBeNull()

@@ -46,7 +46,7 @@ function requestToken(request: Request, env: Env): string | null {
   return token && /^[A-Za-z0-9_-]{43}$/.test(token) ? token : null
 }
 
-export async function authenticate(request: Request, env: Env, now: number): Promise<Session | null> {
+export async function authenticate(request: Request, env: Env, now: number, expectedUserId: string | null = null): Promise<Session | null> {
   const token = requestToken(request, env)
   if (!token) return null
   const id = await tokenHash(token)
@@ -54,6 +54,7 @@ export async function authenticate(request: Request, env: Env, now: number): Pro
     JOIN users u ON u.id = s.user_id WHERE s.id = ? AND s.expires_at > ?`).bind(id, now)
     .first<User & { expires_at: number; last_seen_at: number }>()
   if (!row) return null
+  if (expectedUserId !== null && expectedUserId !== row.id) throw new HttpError(409, 'user_mismatch')
   const session: Session = { user: { id: row.id, username: row.username }, id }
   if (row.expires_at - now < 45 * DAY) {
     await env.DB.prepare('UPDATE sessions SET expires_at = ?, last_seen_at = ? WHERE id = ? AND user_id = ?')

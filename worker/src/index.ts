@@ -52,7 +52,8 @@ export default {
         }
       }
       const now = Date.now()
-      const session = await authenticate(request, env, now)
+      const expectedUserId = request.method === 'PUT' && /^\/api\/photos\/[^/]+$/.test(url.pathname) ? request.headers.get('X-Selfie-User') : null
+      const session = await authenticate(request, env, now, expectedUserId)
       authenticated = session !== null
       renewal = session?.cookie
       const authResponse = await handleAuth(request, env, url, session, now)

@@ -17,15 +17,18 @@ export function pending(userId: string, meta = photo()): PendingPhoto {
 export const reply = (body: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } })
 
 export function server(initial: PhotoMeta[] = []) {
+  let user = { id: 'synthetic-a', username: 'synthetic-a' }
   let photos: PhotoDTO[] = initial.map((item) => ({ ...item, timerSeconds: item.timerSeconds ?? 0 }))
   let cursor = 0
   const uploadIds: string[] = []
   const mocked = vi.fn((input: string, init?: RequestInit): Promise<Response> => {
     return Promise.resolve((() => {
-    if (input === '/api/auth/me') return reply({ user: { id: 'synthetic-a', username: 'synthetic-a' } })
+    if (input === '/api/auth/me') return reply({ user })
     if (input.startsWith('/api/sync')) return reply({ albums: [defaultAlbum()], photos, removed: [], cursor: String(++cursor), serverTime: Date.now() } satisfies SyncResponse)
     if (input.endsWith('/master')) return new Response(new Uint8Array(16), { headers: { 'Content-Type': 'image/webp' } })
     if (input.startsWith('/api/photos/') && init?.method === 'PUT') {
+      const expected = new Headers(init.headers).get('X-Selfie-User')
+      if (expected !== null && expected !== user.id) return reply({ error: 'user_mismatch' }, 409)
       const id = input.split('/').at(-1)!
       uploadIds.push(id)
       const previous = photos.find((item) => item.id === id)
@@ -41,5 +44,5 @@ export function server(initial: PhotoMeta[] = []) {
     })())
   })
   vi.stubGlobal('fetch', mocked)
-  return { mocked, uploadIds, setPhotos: (items: PhotoMeta[]) => { photos = items.map((item) => ({ ...item, timerSeconds: item.timerSeconds ?? 0 })) } }
+  return { mocked, uploadIds, setUser: (next: typeof user) => { user = next }, setPhotos: (items: PhotoMeta[]) => { photos = items.map((item) => ({ ...item, timerSeconds: item.timerSeconds ?? 0 })) } }
 }

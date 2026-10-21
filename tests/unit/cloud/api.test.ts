@@ -20,10 +20,11 @@ describe('API contract', () => {
   it('lets the browser set the multipart boundary and sends timer metadata', async () => {
     const request = vi.fn().mockResolvedValue(reply({ photo: photo(), replaced: [] }, 201))
     vi.stubGlobal('fetch', request)
-    await uploadPhoto({ ...photo(), timerSeconds: 5 }, new Blob([new Uint8Array(16)], { type: 'image/webp' }), new Blob([new Uint8Array(4)], { type: 'image/webp' }))
+    await uploadPhoto('synthetic-a', { ...photo(), timerSeconds: 5 }, new Blob([new Uint8Array(16)], { type: 'image/webp' }), new Blob([new Uint8Array(4)], { type: 'image/webp' }))
     const init = request.mock.calls[0]![1] as RequestInit
     expect(new Headers(init.headers).has('Content-Type')).toBe(false)
     expect(new Headers(init.headers).get('X-Selfie-CSRF')).toBe('1')
+    expect(new Headers(init.headers).get('X-Selfie-User')).toBe('synthetic-a')
     expect(JSON.parse((init.body as FormData).get('meta') as string)).toMatchObject({ timerSeconds: 5 })
     expect((init.body as FormData).has('master')).toBe(true)
   })

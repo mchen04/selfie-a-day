@@ -6,6 +6,7 @@ import {
 } from '../storage/local.ts'
 
 export interface SyncState extends Snapshot { pending: PendingPhoto[]; syncing: boolean; error: string | null }
+const READ_INTERRUPTED = new Error('Read interrupted')
 
 export class SyncEngine {
   readonly user: User
@@ -17,6 +18,9 @@ export class SyncEngine {
   private refreshPending = false
   private refreshRequested = false
   private uploadRequested = false
+  private uploadBlocked = false
+  private readController: AbortController | null = null
+  private sessionController = new AbortController()
   private readonly changed: (state: SyncState) => void
 
   constructor(user: User, changed: (state: SyncState) => void) {
@@ -46,6 +50,8 @@ export class SyncEngine {
 
   stop(): Promise<unknown> {
     this.active = false
+    this.sessionController.abort()
+    this.readController?.abort(READ_INTERRUPTED)
     clearTimeout(this.retry)
     return Promise.all([this.chain, ...this.writes])
   }
@@ -53,26 +59,61 @@ export class SyncEngine {
   refresh(session?: ReturnType<typeof api.me>): Promise<void> {
     if (!this.active) return this.chain.then(() => undefined)
     this.refreshRequested = true
+    return this.synchronize(session)
+  }
+
+  private requestUpload(): Promise<void> {
+    if (!this.active || this.uploadBlocked) return this.chain.then(() => undefined)
+    this.uploadRequested = true
+    this.readController?.abort(READ_INTERRUPTED)
+    return this.synchronize()
+  }
+
+  private async read(operation: (signal: AbortSignal) => Promise<void>) {
+    const controller = new AbortController()
+    this.readController = controller
+    const interrupted = new Promise<never>((_, reject) => {
+      controller.signal.addEventListener('abort', () => reject(READ_INTERRUPTED), { once: true })
+    })
+    try { await Promise.race([operation(controller.signal), interrupted]) }
+    finally { this.readController = null; controller.abort(READ_INTERRUPTED) }
+  }
+
+  private synchronize(session?: ReturnType<typeof api.me>): Promise<void> {
     if (this.refreshPending) return this.chain.then(() => undefined)
     this.refreshPending = true
     return this.run(async () => {
       this.emit({ syncing: true, error: null })
       try {
-        do {
-          this.refreshRequested = false
-          const verified = requireUser(this.user.id, session)
-          if (!session) await verified
-          session = undefined
-          if (!this.active) return
-          await this.pull(verified)
-          do {
+        while (this.active && (this.refreshRequested || this.uploadRequested)) {
+          try {
+            if (!this.uploadRequested) {
+              this.refreshRequested = false
+              const shared = session !== undefined
+              const verified = requireUser(this.user.id, session ?? api.me(this.sessionController.signal), this.sessionController.signal)
+              session = undefined
+              await this.read(async (signal) => {
+                if (!shared) await verified
+                signal.throwIfAborted()
+                await this.pull(verified, signal)
+              })
+            }
             await this.flushUploads()
             if (!this.active) return
-            await this.pull()
-            if (this.uploadRequested) continue
-            await this.reconcileGhosts()
-          } while (this.active && this.uploadRequested)
-        } while (this.active && this.refreshRequested)
+            await this.read(async (signal) => {
+              await this.pull(undefined, signal)
+              await this.reconcileGhosts(signal)
+            })
+          } catch (error) {
+            if (this.uploadRequested && error === READ_INTERRUPTED) continue
+            if (error instanceof ApiError && error.code === 'user_mismatch') {
+              this.emit({ error: error.message })
+              this.refreshRequested = true
+              continue
+            }
+            throw error
+          }
+        }
       } catch (error) {
         this.emit({ error: error instanceof ApiError ? error.message : 'Offline. New photos wait here until you reconnect.' })
       } finally {
@@ -95,18 +136,20 @@ export class SyncEngine {
     this.emit({ photos })
   }
 
-  private async pull(verified?: Promise<void>) {
+  private async pull(verified?: Promise<void>, signal?: AbortSignal) {
     let full = !this.state.cursor
     let delta
-    try { delta = (await Promise.all([api.sync(full ? undefined : this.state.cursor), verified]))[0] }
+    try { delta = (await Promise.all([api.sync(full ? undefined : this.state.cursor, signal), verified]))[0] }
     catch (error) {
+      signal?.throwIfAborted()
       if (full || !(error instanceof ApiError) || error.status !== 400 || error.code !== 'invalid_cursor') throw error
       if (!this.active) return
       this.emit({ cursor: '' })
       await this.persist()
       full = true
-      delta = (await Promise.all([api.sync(), verified]))[0]
+      delta = (await Promise.all([api.sync(undefined, signal), verified]))[0]
     }
+    signal?.throwIfAborted()
     if (!this.active) return
     const albums = new Map((full ? [] : this.state.albums).map((album) => [album.id, album]))
     const photos = new Map((full ? [] : this.state.photos).map((photo) => [photo.id, photo]))
@@ -121,9 +164,8 @@ export class SyncEngine {
     if (!this.active) return Promise.reject(new Error('Please sign in again.'))
     const write = (async () => {
       await queuePhoto({ userId: this.user.id, meta, master, thumb, attempts: 0, nextAttemptAt: 0, error: null })
-      this.uploadRequested = true
       this.emit({ pending: await listPending(this.user.id) })
-      if (!this.refreshPending) this.scheduleRetry(0)
+      void this.requestUpload()
     })()
     this.writes.add(write)
     void write.then(() => this.writes.delete(write), () => this.writes.delete(write))
@@ -140,12 +182,10 @@ export class SyncEngine {
 
   private async flush() {
     for (const entry of await listPending(this.user.id)) {
-      if (!this.active || entry.userId !== this.user.id) return
+      if (!this.active || this.uploadBlocked || entry.userId !== this.user.id) return
       if (entry.nextAttemptAt > Date.now()) continue
       try {
-        await requireUser(this.user.id)
-        if (!this.active) return
-        const result = await uploadPhoto(entry.meta,
+        const result = await uploadPhoto(entry.userId, entry.meta,
           new Blob([entry.master.bytes], { type: entry.master.mime }),
           new Blob([entry.thumb.bytes], { type: entry.thumb.mime }))
         if (!this.active) return
@@ -158,6 +198,11 @@ export class SyncEngine {
         await removePending(this.user.id, entry.meta.id)
       } catch (error) {
         if (!this.active) return
+        if (error instanceof ApiError && error.code === 'user_mismatch') {
+          this.uploadBlocked = true
+          this.uploadRequested = false
+          throw error
+        }
         if (error instanceof ApiError && error.status === 401) throw error
         const permanent = error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 429
         const delay = error instanceof ApiError && error.status === 429
@@ -171,31 +216,33 @@ export class SyncEngine {
     }
   }
 
-  private scheduleRetry(delay?: number) {
+  private scheduleRetry() {
     clearTimeout(this.retry)
-    if (!this.active) return
+    if (!this.active || this.uploadBlocked) return
     const next = Math.min(...this.state.pending.map((entry) => entry.nextAttemptAt))
-    const wait = delay ?? Math.max(1000, next - Date.now())
+    const wait = Math.max(1000, next - Date.now())
     if (Number.isFinite(wait) && wait < 2_147_483_647) {
-      this.retry = setTimeout(() => {
-        if (this.refreshPending) this.uploadRequested = true
-        else void this.refresh()
-      }, wait)
+      this.retry = setTimeout(() => { void this.requestUpload() }, wait)
     }
   }
 
   async retryUploads(): Promise<void> {
-    await this.run(async () => {
+    if (this.uploadBlocked) return this.refresh()
+    const write = (async () => {
       for (const entry of await listPending(this.user.id)) await updatePending({ ...entry, nextAttemptAt: 0 })
-    })
-    return this.refresh()
+    })()
+    this.writes.add(write)
+    try { await write }
+    finally { this.writes.delete(write) }
+    return this.requestUpload()
   }
 
   visiblePhotos(): PhotoMeta[] {
     return visiblePhotos(this.state)
   }
 
-  private async reconcileGhosts() {
+  private async reconcileGhosts(signal?: AbortSignal) {
+    signal?.throwIfAborted()
     if (!this.active) return
     const newest = new Map<string, PhotoMeta>()
     for (const photo of this.visiblePhotos()) if (photo.deletedAt === null && !newest.has(photo.albumId)) newest.set(photo.albumId, photo)
@@ -207,8 +254,9 @@ export class SyncEngine {
       if (!this.active) return
       if (ghosts.some((ghost) => ghost.albumId === albumId && ghost.imageId === photo.id)) continue
       const pending = this.state.pending.find((entry) => entry.meta.id === photo.id)
-      const blob = pending ? null : await photoBlob(photo.id, 'master')
+      const blob = pending ? null : await photoBlob(photo.id, 'master', signal)
       const image = pending?.master ?? { id: photo.id, width: photo.width, height: photo.height, mime: photo.mime, bytes: await blob!.arrayBuffer() }
+      signal?.throwIfAborted()
       if (this.active) await putGhost({ userId: this.user.id, albumId, capturedAt: photo.capturedAt, image })
     }
   }

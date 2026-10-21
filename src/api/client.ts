@@ -20,6 +20,7 @@ const messages: Record<string, string> = {
   invalid_credentials: 'The username or password is incorrect.',
   username_taken: 'That username is taken. Choose another.',
   unauthenticated: 'Please sign in again.',
+  user_mismatch: 'Your account changed. Sign in again to upload these photos.',
   forbidden: 'The request was blocked. Reload and try again.',
   day_taken: 'This day already has a photo. Move it to Trash first.',
   album_name_taken: 'An album already has that name.',
@@ -50,8 +51,9 @@ export function onSignedOut(listener: () => void): () => void {
   return () => { signedOutListeners.delete(listener) }
 }
 
-export async function requireUser(userId: string, session = api.me()): Promise<void> {
+export async function requireUser(userId: string, session = api.me(), signal?: AbortSignal): Promise<void> {
   const { user } = await session
+  signal?.throwIfAborted()
   if (user.id !== userId) {
     for (const listener of signedOutListeners) listener()
     throw new ApiError(401, 'unauthenticated')
@@ -74,25 +76,23 @@ async function request(path: string, init: RequestInit = {}, auth = true): Promi
   return response
 }
 
-export async function json<T>(path: string, method = 'GET', body?: unknown, auth = true): Promise<T> {
+export async function json<T>(path: string, method = 'GET', body?: unknown, auth = true, signal?: AbortSignal): Promise<T> {
   const response = await request(path, {
     method,
+    ...(signal ? { signal } : {}),
     ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   }, auth)
-  return (response.status === 204 ? undefined : await response.json()) as T
+  const result = (response.status === 204 ? undefined : await response.json()) as T
+  signal?.throwIfAborted()
+  return result
 }
 
 export const api = {
-  me: async (signal?: AbortSignal, auth = true) => {
-    const response = await request('/auth/me', signal ? { signal } : {}, auth)
-    const result = await response.json() as { user: User }
-    signal?.throwIfAborted()
-    return result
-  },
+  me: (signal?: AbortSignal, auth = true) => json<{ user: User }>('/auth/me', 'GET', undefined, auth, signal),
   login: (username: string, password: string) => json<{ user: User }>('/auth/login', 'POST', { username, password }, false),
   signup: (username: string, password: string) => json<{ user: User }>('/auth/signup', 'POST', { username, password }, false),
   logout: () => json<void>('/auth/logout', 'POST'),
-  sync: (cursor?: string) => json<SyncResponse>(`/sync${cursor ? `?since=${encodeURIComponent(cursor)}` : ''}`),
+  sync: (cursor?: string, signal?: AbortSignal) => json<SyncResponse>(`/sync${cursor ? `?since=${encodeURIComponent(cursor)}` : ''}`, 'GET', undefined, true, signal),
   album: (album: AlbumDTO) => json<{ album: AlbumDTO }>(`/albums/${encodeURIComponent(album.id)}`, 'PUT', {
     name: album.name, timeZone: album.timeZone, createdAt: album.createdAt,
   }),
@@ -108,7 +108,7 @@ export const api = {
   }),
 }
 
-export async function uploadPhoto(meta: PhotoMeta, master: Blob, thumb: Blob): Promise<{ photo: PhotoDTO; replaced: string[] }> {
+export async function uploadPhoto(userId: string, meta: PhotoMeta, master: Blob, thumb: Blob): Promise<{ photo: PhotoDTO; replaced: string[] }> {
   const form = new FormData()
   form.set('meta', JSON.stringify({
     albumId: meta.albumId, dayKey: meta.dayKey, capturedAt: meta.capturedAt,
@@ -118,7 +118,7 @@ export async function uploadPhoto(meta: PhotoMeta, master: Blob, thumb: Blob): P
   }))
   form.set('master', master, 'master')
   form.set('thumb', thumb, 'thumb')
-  return await (await request(`/photos/${meta.id}`, { method: 'PUT', body: form })).json() as { photo: PhotoDTO; replaced: string[] }
+  return await (await request(`/photos/${meta.id}`, { method: 'PUT', headers: { 'X-Selfie-User': userId }, body: form })).json() as { photo: PhotoDTO; replaced: string[] }
 }
 
 export function photoUrl(id: string, kind: 'master' | 'thumb'): string {

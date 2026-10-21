@@ -18,6 +18,67 @@ afterEach(async () => {
 })
 
 describe('sync', () => {
+  it('sends a capture PUT followed by one delta sync without a session check', async () => {
+    await writeSnapshot('synthetic-a', { albums: [defaultAlbum()], photos: [], cursor: 'cached' })
+    const { mocked, uploadIds } = server()
+    const current = engine()
+    await current.hydrate()
+    const capture = pending('synthetic-a')
+    await current.enqueue(capture.meta, capture.master, capture.thumb)
+    await vi.waitFor(() => expect(current.state.pending).toHaveLength(0))
+    await vi.waitFor(() => expect(current.state.syncing).toBe(false))
+    expect(mocked.mock.calls.map(([url]) => url)).toEqual([`/api/photos/${capture.meta.id}`, '/api/sync?since=cached'])
+    expect(new Headers(mocked.mock.calls[0]![1]?.headers).get('X-Selfie-User')).toBe('synthetic-a')
+    expect(uploadIds).toEqual([capture.meta.id])
+  })
+
+  it('uploads before an in-flight refresh returns its sync response', async () => {
+    const { mocked, uploadIds } = server()
+    const respond = mocked.getMockImplementation()!
+    let entered: (() => void) | undefined
+    let release: (() => void) | undefined
+    const blocked = new Promise<void>((resolve) => { entered = resolve })
+    const waiting = new Promise<void>((resolve) => { release = resolve })
+    let held = false
+    mocked.mockImplementation(async (url, init) => {
+      if (url.startsWith('/api/sync') && !held) { held = true; entered!(); await waiting }
+      return respond(url, init)
+    })
+    const current = engine()
+    await current.hydrate()
+    const refreshing = current.refresh()
+    await blocked
+    const capture = pending('synthetic-a')
+    try {
+      await current.enqueue(capture.meta, capture.master, capture.thumb)
+      await vi.waitFor(() => expect(uploadIds).toEqual([capture.meta.id]), { timeout: 500 })
+    } finally { release!() }
+    await refreshing
+    expect(current.state.photos.map((item) => item.id)).toContain(capture.meta.id)
+  })
+
+  it('keeps a rejected capture with its owner and stops this engine from uploading again', async () => {
+    const first = pending('synthetic-a'), second = pending('synthetic-a', photo(first.meta.capturedAt + 1))
+    const { mocked, uploadIds } = server()
+    const respond = mocked.getMockImplementation()!
+    mocked.mockImplementation((url, init) => {
+      if (init?.method === 'PUT') return Promise.resolve(reply({ error: 'user_mismatch' }, 409))
+      if (url === '/api/auth/me') return Promise.resolve(reply({ user: { id: 'synthetic-b', username: 'synthetic-b' } }))
+      return respond(url, init)
+    })
+    const current = engine()
+    await current.hydrate()
+    await current.enqueue(first.meta, first.master, first.thumb)
+    await vi.waitFor(() => expect(mocked.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(true))
+    await vi.waitFor(() => expect(current.state.syncing).toBe(false))
+    await current.enqueue(second.meta, second.master, second.thumb)
+    await current.retryUploads()
+    expect(mocked.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(1)
+    expect(uploadIds).toEqual([])
+    expect((await listPending('synthetic-a')).map((entry) => entry.userId)).toEqual(['synthetic-a', 'synthetic-a'])
+    expect(await listPending('synthetic-b')).toEqual([])
+  })
+
   it.each(['first pull', 'second pull', 'ghost download', 'upload'])('joins a capture to the refresh during %s without duplicate checks before its PUT', async (phase) => {
     const original = photo(), capture = pending('synthetic-a', photo(original.capturedAt + 1))
     if (phase === 'upload') await queuePhoto(pending('synthetic-a', original))
@@ -50,8 +111,8 @@ describe('sync', () => {
     const upload = calls.findIndex(([url, init]) => url.endsWith(capture.meta.id) && init?.method === 'PUT')
     expect(upload).toBeGreaterThanOrEqual(0)
     expect(calls.slice(0, upload).filter(([url]) => url.startsWith('/api/sync')).length).toBeLessThanOrEqual(1)
-    expect(calls.slice(0, upload).filter(([url]) => url === '/api/auth/me')).toHaveLength(1)
-    expect(calls.filter(([url]) => url === '/api/auth/me')).toHaveLength(1)
+    expect(calls.slice(0, upload).filter(([url]) => url === '/api/auth/me')).toHaveLength(0)
+    expect(calls.filter(([url]) => url === '/api/auth/me')).toHaveLength(0)
     expect(uploadIds.filter((id) => id === capture.meta.id)).toHaveLength(1)
     expect(await listPending('synthetic-a')).toEqual([])
   })
@@ -82,13 +143,13 @@ describe('sync', () => {
     const upload = calls.findIndex(([url, init]) => url.endsWith(capture.meta.id) && init?.method === 'PUT')
     expect(upload).toBeGreaterThanOrEqual(0)
     expect(calls.slice(0, upload).filter(([url]) => url.startsWith('/api/sync')).length).toBeLessThanOrEqual(1)
-    expect(calls.slice(0, upload).filter(([url]) => url === '/api/auth/me')).toHaveLength(1)
+    expect(calls.slice(0, upload).filter(([url]) => url === '/api/auth/me')).toHaveLength(0)
     expect(await listPending('synthetic-a')).toEqual([])
   })
 
   it('keeps a joined capture in the outbox if the account changes during the refresh', async () => {
     const original = photo(), capture = pending('synthetic-a', photo(original.capturedAt + 1))
-    const { mocked, uploadIds } = server([original])
+    const { mocked, uploadIds, setUser } = server([original])
     const respond = mocked.getMockImplementation()!
     let entered: (() => void) | undefined
     let release: (() => void) | undefined
@@ -103,6 +164,7 @@ describe('sync', () => {
     await current.hydrate()
     const refreshing = current.refresh(Promise.resolve({ user: current.user }))
     await blocked
+    setUser({ id: 'synthetic-b', username: 'synthetic-b' })
     try { await current.enqueue(capture.meta, capture.master, capture.thumb) }
     finally { release!() }
     await refreshing
@@ -197,7 +259,7 @@ describe('sync', () => {
     await refreshing
     expect((await listGhosts('synthetic-a'))[0]?.image.id).toBe(next.meta.id)
   })
-  it('saves a capture while a network request is still pending', async () => {
+  it('uploads a capture while the session check is still pending', async () => {
     const { mocked } = server()
     const response = mocked.getMockImplementation()!
     let release: (() => void) | undefined
@@ -211,8 +273,8 @@ describe('sync', () => {
     const refreshing = current.refresh()
     const capture = pending('synthetic-a')
     await current.enqueue(capture.meta, capture.master, capture.thumb)
-    expect(await listPending('synthetic-a')).toHaveLength(1)
-    release!()
+    try { await vi.waitFor(async () => expect(await listPending('synthetic-a')).toHaveLength(0), { timeout: 500 }) }
+    finally { release!() }
     await refreshing
     expect(await listPending('synthetic-a')).toHaveLength(0)
   })

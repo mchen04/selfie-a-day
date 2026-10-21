@@ -7,6 +7,22 @@ describe('albums, photo storage, trash, and delta sync in workerd', () => {
   beforeAll(async () => { h = await createHarness() })
   afterAll(async () => { await h?.dispose() })
 
+  it.each(['missing', 'matching'])('accepts a %s expected-user header on an upload', async (mode) => {
+    const user = await h.user()
+    const id = photoId(mode === 'missing' ? 9001 : 9002)
+    const form = new FormData()
+    form.set('meta', JSON.stringify({ albumId: 'selfies', dayKey: '2026-10-21', capturedAt: TEST_NOW,
+      timeZone: 'UTC', tzOffsetMinutes: 0, width: 3, height: 4, mime: 'image/jpeg', mirrored: false, source: 'camera', timerSeconds: 0 }))
+    const image = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4])], { type: 'image/jpeg' })
+    form.set('master', image, 'master.jpg')
+    form.set('thumb', image, 'thumb.jpg')
+    const response = await h.request(`/api/photos/${id}`, { method: 'PUT', cookie: user.cookie, body: form,
+      headers: mode === 'matching' ? { 'X-Selfie-User': user.id } : {} })
+    expect(response.status).toBe(201)
+    expect(await response.json()).toMatchObject({ photo: { id, albumId: 'selfies' } })
+    expect(await h.env.PHOTOS.head(photoKey(user.id, id, 'master'))).not.toBeNull()
+  })
+
   it('creates the default album once and sends complete DTOs', async () => {
     const user = await h.user()
     const first = await (await h.request('/api/sync', { cookie: user.cookie })).json<SyncData>()
