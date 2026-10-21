@@ -1,7 +1,8 @@
 import { useServiceWorker } from '../pwa/useServiceWorker.ts'
 import { CaptureScreen } from './screens/CaptureScreen.tsx'
 import { UndoTrash } from './components/UndoTrash.tsx'
-import { OnboardingScreen } from './screens/OnboardingScreen.tsx'
+import { AccountScreen } from './account/AccountScreen.tsx'
+import { CloudStatus } from './components/cloud/CloudStatus.tsx'
 import { PhotoScreen } from './screens/PhotoScreen.tsx'
 import { SettingsScreen } from './screens/SettingsScreen.tsx'
 import { TimelineScreen } from './screens/TimelineScreen.tsx'
@@ -10,7 +11,7 @@ import { useRoute } from './router.ts'
 import { useApp } from './store-context.ts'
 
 export function App() {
-  const { status, settings, storageError } = useApp()
+  const { status, user, storageError } = useApp()
   const route = useRoute()
   const sw = useServiceWorker()
 
@@ -30,18 +31,17 @@ export function App() {
     return (
       <div className="screen boot" data-testid="boot-error">
         <div className="card stack" style={{ margin: 'auto', maxWidth: 340 }}>
-          <h1 className="section__title">Photo storage is unavailable</h1>
+          <h1 className="section__title">Device storage is unavailable</h1>
           <p className="tiny muted">{storageError}</p>
           <p className="tiny muted">
-            Private browsing usually causes this. Open the app in a normal window and your photos
-            will have somewhere to live.
+            Allow browser storage so new photos can wait safely for upload.
           </p>
         </div>
       </div>
     )
   }
 
-  if (settings.onboardingCompleteAt === null) return <OnboardingScreen />
+  if (!user || status === 'signed-out') return <AccountScreen />
 
   return (
     <>
@@ -57,6 +57,7 @@ export function App() {
         <CaptureScreen />
       )}
 
+      <CloudStatus />
       <UndoTrash />
 
       {sw.updateReady ? (

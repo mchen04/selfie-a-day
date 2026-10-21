@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { getMaster, getThumb } from '../storage/photos.ts'
+import { photoUrl } from '../api/client.ts'
+import { localImage, getPending } from '../storage/local.ts'
+import { useApp } from './store-context.ts'
 
 export interface StoredImageState {
   url: string | null
@@ -32,22 +34,26 @@ export function useStoredImage(
   id: string | null | undefined,
   kind: 'master' | 'thumb',
   enabled = true,
+  allowGhost = true,
 ): StoredImageState {
-  const key = enabled && id ? `${kind}:${id}` : null
+  const { user, pendingIds } = useApp()
+  const pending = !!id && pendingIds.includes(id)
+  const userId = user?.id
+  const key = enabled && id && userId ? `${userId}:${kind}:${id}:${pending}` : null
   const [entry, setEntry] = useState<Entry | null>(null)
 
   useEffect(() => {
-    if (!key || !id) return
+    if (!key || !id || !userId) return
 
     let cancelled = false
     let created: string | null = null
 
     void (async () => {
       try {
-        const stored = kind === 'master' ? await getMaster(id) : await getThumb(id)
+        const stored = allowGhost ? await localImage(userId, id, kind) : (await getPending(userId, id))?.[kind]
         if (cancelled) return
         if (!stored) {
-          setEntry({ key, url: null, error: 'This photo is missing from storage.' })
+          setEntry({ key, url: photoUrl(id, kind), error: null })
           return
         }
         created = URL.createObjectURL(new Blob([stored.bytes], { type: stored.mime }))
@@ -71,7 +77,7 @@ export function useStoredImage(
       cancelled = true
       if (created) URL.revokeObjectURL(created)
     }
-  }, [key, id, kind])
+  }, [key, id, kind, userId, allowGhost])
 
   if (!key) return IDLE
   if (entry?.key !== key) return LOADING

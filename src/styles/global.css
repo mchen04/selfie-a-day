@@ -390,3 +390,34 @@ canvas {
   font-size: 13px;
   line-height: 1.4;
 }
+
+.account {
+  overflow-y: auto;
+  padding: max(28px, env(safe-area-inset-top)) max(22px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(22px, env(safe-area-inset-left));
+  justify-content: space-between;
+  gap: 28px;
+  background: radial-gradient(ellipse at 80% 0, #1c2926 0, transparent 60%), #0a0a0c;
+}
+.account__intro, .account__form { width: 100%; max-width: 360px; margin-inline: auto; }
+.account__intro { padding-top: min(7vh, 48px); }
+.account__intro h1 { font-size: clamp(32px, 9vw, 42px); letter-spacing: -1.8px; line-height: 1.1; margin: 14px 0; }
+.account__intro p { color: var(--muted); font-size: 15px; line-height: 1.5; }
+.account__eyebrow { font-size: 11px !important; text-transform: uppercase; letter-spacing: 1.5px; }
+.account__mark { position: relative; height: 48px; margin-bottom: 24px; }
+.account__mark span { display: block; position: absolute; width: 42px; height: 48px; border: 2px solid #b6ddc5; border-radius: 50%; }
+.account__mark span:first-child { transform: translateX(14px); opacity: .3; }
+.account__form { display: flex; flex-direction: column; gap: 14px; }
+.account__form h2 { font-size: 18px; font-weight: 500; margin: 0 0 4px; }
+.account__form .text-input { width: 100%; min-height: 48px; font-size: 16px; }
+.account__switch { min-height: 44px; color: #b6ddc5; background: none; border: 0; font: inherit; font-size: 14px; }
+.account__form > .tiny { text-align: center; margin: 0; }
+.cloud-status { position: fixed; top: calc(var(--safe-top) + 56px); left: 12px; right: 12px; margin: auto; max-width: 440px; padding: 4px 12px; background: #202824f2; border: 1px solid #3a4d41; border-radius: 12px; font-size: 12px; display: flex; align-items: center; justify-content: space-between; z-index: 25; pointer-events: none; }
+.cloud-status button { pointer-events: auto; min-height: 44px; }
+.cloud-status span { overflow-wrap: anywhere; }
+.upload-badge { position: absolute; left: 4px; top: 4px; border-radius: 5px; padding: 3px 5px; font-size: 10px; background: #0a0a0cbb; color: #fff; }
+.cell__media { position: relative; }
+.download-progress { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.settings .text-input { min-width: 0; max-width: 100%; font-size: 16px; }
+.settings input[type="range"] { min-height: 44px; width: 100%; }
+.settings .field { min-width: 0; }
+@media (max-height: 650px) { .account { gap: 18px; } .account__intro { padding-top: 0; } .account__mark { display: none; } }

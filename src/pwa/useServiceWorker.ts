@@ -13,8 +13,7 @@ export interface ServiceWorkerState {
  * someone who is mid-capture would, at best, waste the photo they were lining
  * up; the new version waits until they say so.
  *
- * Photos live in IndexedDB, which a worker update never touches — the worker
- * only caches the app shell.
+ * The worker only caches the app shell.
  */
 export function useServiceWorker(): ServiceWorkerState {
   const [updateReady, setUpdateReady] = useState(false)
