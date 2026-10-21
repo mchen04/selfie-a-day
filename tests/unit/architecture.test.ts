@@ -1,7 +1,7 @@
-import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { credentialFiles } from '../support/repository.ts'
 
 const SRC = resolve(import.meta.dirname, '../../src')
 
@@ -100,10 +100,6 @@ describe('cloud boundaries', () => {
   })
   it('contains no credential-shaped strings in repository text, including Worker code', () => {
     const root = resolve(SRC, '..')
-    const paths = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: root, encoding: 'utf8' }).split('\0')
-    const all = paths.filter((path) => /\.(ts|tsx|js|mjs|cjs|json|jsonc|sql|html|css|md|toml|ya?ml)$/.test(path) && !/(?:^|\/)(?:\.env|\.dev\.vars)(?:\.|$)/.test(path) && existsSync(join(root, path)))
-      .map((path) => ({ rel: path, text: readFileSync(join(root, path), 'utf8') }))
-    const patterns = [/postgres(?:ql)?:\/\//i, /\bnpg_[A-Za-z0-9]{8,}/, new RegExp('neondb' + '_owner', 'i'), /-----BEGIN (?:RSA |EC )?PRIVATE KEY-----/, /\bsk-[A-Za-z0-9]{24,}/]
-    expect(all.filter((file) => patterns.some((pattern) => pattern.test(file.text))).map((file) => file.rel)).toEqual([])
+    expect(credentialFiles(root)).toEqual([])
   })
 })

@@ -142,3 +142,26 @@ These browser and workerd checks require the mini.
 
 Album IDs remain globally unique.
 PUT with another owner's album ID returns 404 without creating an album.
+
+## Export and browser harness regressions
+
+The repository scan works in a Git archive without `.git` metadata or the Git CLI.
+It walks regular source files and includes untracked Worker code.
+It skips generated output, local secret files, ignored paths and symlinks.
+It honors the repository's ignore exceptions and nested cache directories.
+`tests/unit/repository.test.ts` checks a plain export with synthetic credential shapes.
+The original architecture check also runs with Git metadata deliberately unavailable.
+
+The push browser test migrates and starts its isolated Worker with the same persistence root.
+`getPlatformProxy` takes the Miniflare versioned root directly.
+`unstable_startWorker` appends `v3` to its persistence directory.
+Passing the same unversioned directory to both APIs created two separate D1 stores.
+The migration proxy had tables; signup in the started Worker reached an empty store and returned 500.
+The proxy now receives the Worker's versioned root.
+This fixes the path mismatch without adding a test endpoint to the product Worker.
+
+A socket-free SQLite check applies every migration through `unstable_splitSqlQuery`.
+Album revisions advance from 1 to 2 after an update, which confirms trigger bodies remain intact.
+The browser check now asserts signup returns 201 before waiting for capture.
+It retains the two-tap, decrypted reminder, duplicate-cron and photo-suppression assertions.
+`tests/e2e/push.spec.ts` still needs execution on the mini to confirm the complete browser path.

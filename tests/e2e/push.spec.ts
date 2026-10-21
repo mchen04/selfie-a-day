@@ -71,7 +71,7 @@ test('two taps enable one encrypted reminder; a saved photo suppresses the eveni
       },
     }))
     const database = await getPlatformProxy<{ DB: { prepare: (sql: string) => { run: () => Promise<unknown> } } }>({
-      configPath, envFiles: [], persist: { path: statePath }, remoteBindings: false,
+      configPath, envFiles: [], persist: { path: join(statePath, 'v3') }, remoteBindings: false,
     })
     proxy = database
     for (const file of (await readdir('worker/migrations')).filter((file) => file.endsWith('.sql')).sort()) {
@@ -121,7 +121,9 @@ test('two taps enable one encrypted reminder; a saved photo suppresses the eveni
     await page.goto('/')
     await page.getByLabel('Username', { exact: true }).fill(`push-${randomUUID().replaceAll('-', '').slice(0, 20)}`)
     await page.getByLabel('Password', { exact: true }).fill(randomUUID() + randomUUID())
+    const signup = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/auth/signup')
     await page.getByTestId('account-submit').click()
+    expect((await signup).status()).toBe(201)
     await expect(page.getByTestId('capture-screen')).toBeVisible()
     await page.evaluate(async () => { await navigator.serviceWorker.ready; sessionStorage.setItem('push-taps', '0') })
     await page.getByTestId('nav-settings').click()
