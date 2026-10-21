@@ -82,6 +82,14 @@ test('two taps enable one encrypted reminder; a saved photo suppresses the eveni
     worker = await unstable_startWorker({ config: configPath, envFiles: [], dev: { remote: false, persist: statePath, watch: false, server: { hostname: '127.0.0.1', port: 0 } } })
     await worker.ready
     const localWorker = worker
+    const runCron = async (time: number) => {
+      const url = new URL('/cdn-cgi/local/scheduled', await localWorker.url)
+      url.searchParams.set('cron', '*/5 * * * *')
+      url.searchParams.set('time', String(time))
+      const response = await page.request.get(url.href)
+      expect(response.status()).toBe(200)
+      expect(await response.text()).toBe('ok')
+    }
     await page.route('**/api/**', async (route) => {
       const request = route.request()
       const url = new URL(request.url())
@@ -143,9 +151,9 @@ test('two taps enable one encrypted reminder; a saved photo suppresses the eveni
 
     const today = new Date().toISOString().slice(0, 10)
     const morning = Date.parse(`${today}T09:05:00Z`)
-    await localWorker.scheduled({ cron: '*/5 * * * *', scheduledTime: new Date(morning) })
+    await runCron(morning)
     await expect.poll(() => received.length).toBe(1)
-    await localWorker.scheduled({ cron: '*/5 * * * *', scheduledTime: new Date(morning + 300_000) })
+    await runCron(morning + 300_000)
     expect(errors).toEqual([])
     expect(received).toEqual([{ title: 'Selfies', body: "Time for today's photo.", albumId: 'selfies', tag: 'album-selfies', url: '/?album=selfies' }])
 
@@ -154,8 +162,8 @@ test('two taps enable one encrypted reminder; a saved photo suppresses the eveni
     const upload = page.waitForResponse((response) => /\/api\/photos\/[0-9a-z]{20}$/.test(response.url()) && response.request().method() === 'PUT')
     await page.getByTestId('shutter').click()
     expect((await upload).status()).toBe(201)
-    await localWorker.scheduled({ cron: '*/5 * * * *', scheduledTime: new Date(`${today}T20:35:00Z`) })
-    await localWorker.scheduled({ cron: '*/5 * * * *', scheduledTime: new Date(`${today}T21:00:00Z`) })
+    await runCron(Date.parse(`${today}T20:35:00Z`))
+    await runCron(Date.parse(`${today}T21:00:00Z`))
     expect(errors).toEqual([])
     expect(received).toHaveLength(1)
     await testInfo.attach('tap-path', { body: 'Camera → Settings → Selfies reminder switch: 2 taps. One decrypted reminder; zero evening nudges after capture.', contentType: 'text/plain' })

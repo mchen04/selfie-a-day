@@ -165,3 +165,14 @@ Album revisions advance from 1 to 2 after an update, which confirms trigger bodi
 The browser check now asserts signup returns 201 before waiting for capture.
 It retains the two-tap, decrypted reminder, duplicate-cron and photo-suppression assertions.
 `tests/e2e/push.spec.ts` still needs execution on the mini to confirm the complete browser path.
+
+The push check triggers `/cdn-cgi/local/scheduled` with `cron` and epoch-millisecond `time` parameters.
+It requires the scheduled handler's `ok` response before checking delivery.
+Wrangler's `unstable_startWorker().scheduled()` looks up the application name in its separate proxy runtime and fails before dispatch.
+The local HTTP route forwards to the application runtime and supports simulated time.
+
+Sync retains refresh requests that arrive during a running refresh.
+Requests during one pass coalesce into one follow-up pass.
+The regression `pulls a newer untimed retake when refresh arrives during a ghost download` reproduces the camera timer failure deterministically.
+It holds the old ghost download, adds a newer remote retake and requests another refresh.
+The completed refresh exposes the newer photo and its Off timer.

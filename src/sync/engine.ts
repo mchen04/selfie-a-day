@@ -15,6 +15,7 @@ export class SyncEngine {
   private writes = new Set<Promise<void>>()
   private retry: ReturnType<typeof setTimeout> | undefined
   private refreshPending = false
+  private refreshRequested = false
   private readonly changed: (state: SyncState) => void
 
   constructor(user: User, changed: (state: SyncState) => void) {
@@ -49,17 +50,22 @@ export class SyncEngine {
   }
 
   refresh(): Promise<void> {
-    if (this.refreshPending || !this.active) return this.chain.then(() => undefined)
+    if (!this.active) return this.chain.then(() => undefined)
+    this.refreshRequested = true
+    if (this.refreshPending) return this.chain.then(() => undefined)
     this.refreshPending = true
     return this.run(async () => {
       this.emit({ syncing: true, error: null })
       try {
-        await requireUser(this.user.id)
-        if (!this.active) return
-        await this.pull()
-        await this.flush()
-        await this.pull()
-        await this.reconcileGhosts()
+        do {
+          this.refreshRequested = false
+          await requireUser(this.user.id)
+          if (!this.active) return
+          await this.pull()
+          await this.flush()
+          await this.pull()
+          await this.reconcileGhosts()
+        } while (this.active && this.refreshRequested)
       } catch (error) {
         this.emit({ error: error instanceof ApiError ? error.message : 'Offline. New photos wait here until you reconnect.' })
       } finally {

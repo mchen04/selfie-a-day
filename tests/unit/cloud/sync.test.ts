@@ -3,6 +3,7 @@ import { api, ApiError } from '../../../src/api/client.ts'
 import { SyncEngine } from '../../../src/sync/engine.ts'
 import { listGhosts, listPending, queuePhoto, readSnapshot, writeSnapshot } from '../../../src/storage/local.ts'
 import { defaultAlbum } from '../../../src/core/albums.ts'
+import { resolveTimer } from '../../../src/camera/preferences.ts'
 import { pending, photo, reply, server } from './fixtures.ts'
 
 const engines: SyncEngine[] = []
@@ -17,6 +18,35 @@ afterEach(async () => {
 })
 
 describe('sync', () => {
+  it('pulls a newer untimed retake when refresh arrives during a ghost download', async () => {
+    const timed = { ...photo(), timerSeconds: 10 }
+    const untimed = { ...photo(timed.capturedAt + 1000), timerSeconds: 0 }
+    const remote = server([timed])
+    const respond = remote.mocked.getMockImplementation()!
+    let entered: (() => void) | undefined
+    let release: ((response: Response) => void) | undefined
+    const downloading = new Promise<void>((resolve) => { entered = resolve })
+    const delayed = new Promise<Response>((resolve) => { release = resolve })
+    let held = false
+    remote.mocked.mockImplementation((url, init) => {
+      if (url.endsWith('/master') && !held) { held = true; entered!(); return delayed }
+      return respond(url, init)
+    })
+    const current = engine()
+    await current.hydrate()
+    const first = current.refresh()
+    await downloading
+    expect(resolveTimer(null, current.visiblePhotos()[0]!)).toBe(10)
+    remote.setPhotos([{ ...timed, deletedAt: untimed.capturedAt }, untimed])
+    const second = current.refresh()
+    const third = current.refresh()
+    release!(new Response(new Uint8Array(16)))
+    await Promise.all([first, second, third])
+    const latest = current.visiblePhotos().find((item) => item.deletedAt === null)!
+    expect(latest.id).toBe(untimed.id)
+    expect(resolveTimer({ seconds: 3, at: timed.capturedAt - 1 }, latest)).toBe(0)
+    expect(remote.mocked.mock.calls.filter(([url]) => url === '/api/auth/me')).toHaveLength(2)
+  })
   it('replaces an invalid cursor with one full snapshot and keeps pending captures', async () => {
     const stale = photo(), currentPhoto = photo(stale.capturedAt + 1)
     const entry = pending('synthetic-a', photo(stale.capturedAt + 2))
