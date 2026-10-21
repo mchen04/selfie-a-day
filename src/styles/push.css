@@ -1,0 +1,14 @@
+.reminders { display: grid; gap: 4px; min-width: 0; }
+.reminders > h2 { margin-bottom: 4px; }
+.reminder-row { display: grid; grid-template-columns: minmax(0, 1fr) 104px 44px; align-items: center; gap: 6px; min-height: 44px; }
+.reminder-row + .reminder-row { border-top: 1px solid var(--line); }
+.reminder-row__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.reminder-row__time { width: 104px; min-width: 0; min-height: 44px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--surface-2); font: inherit; font-size: 16px; }
+.reminder-switch { display: grid; place-items: center; width: 44px; min-height: 44px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.reminder-switch > span { width: 36px; height: 22px; border-radius: 12px; background: var(--surface-3); position: relative; }
+.reminder-switch > span::after { content: ''; position: absolute; width: 16px; height: 16px; top: 3px; left: 3px; border-radius: 50%; background: var(--text); transition: transform 120ms ease; }
+.reminder-switch[aria-checked="true"] > span { background: var(--accent); }
+.reminder-switch[aria-checked="true"] > span::after { transform: translateX(14px); background: var(--accent-ink); }
+.reminder-switch:disabled, .reminder-row__time:disabled { opacity: .45; cursor: default; }
+.reminder-switch:focus-visible { outline: 2px solid var(--accent); border-radius: 8px; }
+@media (prefers-reduced-motion: reduce) { .reminder-switch > span::after { transition: none; } }

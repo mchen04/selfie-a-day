@@ -2,6 +2,7 @@
 import { clientsClaim } from 'workbox-core'
 import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching'
 import { NavigationRoute, registerRoute } from 'workbox-routing'
+import { installPushHandlers } from './push/worker.ts'
 
 declare const self: ServiceWorkerGlobalScope
 
@@ -20,3 +21,4 @@ self.addEventListener('message', (event: ExtendableMessageEvent) => {
 })
 
 clientsClaim()
+installPushHandlers(self)
