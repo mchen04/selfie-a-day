@@ -139,7 +139,8 @@ export async function completeOnboarding(page) {
 }
 
 export async function offlineReady(page) {
-  await page.waitForFunction(async () => {
+  await page.waitForFunction(() => navigator.serviceWorker.controller?.state === 'activated')
+  const ready = await page.evaluate(async () => {
     const registration = await navigator.serviceWorker.getRegistration()
     if (registration?.active?.state !== 'activated' || !navigator.serviceWorker.controller) return false
     for (const key of await caches.keys()) {
@@ -149,6 +150,7 @@ export async function offlineReady(page) {
     }
     return false
   })
+  if (!ready) throw new Error('Activated service worker has no cached app shell')
 }
 
 export async function account(request, origin) {

@@ -47,6 +47,7 @@ export async function main() {
         '--chrome-flags=--headless=new --disable-dev-shm-usage --proxy-server=http://127.0.0.1:9 --proxy-bypass-list=localhost;127.0.0.1;[::1]'], env)
       const report = JSON.parse(await readFile(runPath, 'utf8'))
       report.harnessVersion = result.harnessVersion
+      report.machine = result.machine
       await jsonFile(runPath, report)
       if (report.runtimeError) throw new Error(report.runtimeError.message)
       const metrics = {}

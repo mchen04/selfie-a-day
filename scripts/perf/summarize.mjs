@@ -3,6 +3,9 @@ import { resolve } from 'node:path'
 import { cli, envelope, fail, isMain, jsonFile, stats, USEFUL_GAIN, VERSION } from './common.mjs'
 
 export function summarize(documents, usefulGain = USEFUL_GAIN) {
+  const hosts = documents.map((document) => document.machine?.hostname)
+  if (hosts.some((host) => typeof host !== 'string' || !host.trim())) throw new Error('Measurement hostname missing; rerun the report')
+  if (new Set(hosts).size > 1) throw new Error('Measurement hosts differ; reports from different hosts cannot be compared')
   const groups = new Map()
   for (const [source, document] of documents.entries()) {
     if (document.harnessVersion !== VERSION) throw new Error('Harness version differs')
@@ -53,14 +56,15 @@ export function summarize(documents, usefulGain = USEFUL_GAIN) {
   const loadAverages = documents.flatMap((document, source) => (document.samples ?? []).filter((sample) => sample.evidence?.loadavg)
     .map((sample) => ({ source, target: sample.target, scenario: sample.scenario, round: sample.round,
       executed: sample.evidence.executed !== false, ...sample.evidence.loadavg })))
-  return { tables, outcomes, loadAverages }
+  return { measurementHost: hosts[0], tables, outcomes, loadAverages }
 }
 
 const number = (value) => Number.isInteger(value) ? String(value) : value.toFixed(2)
 const escape = (value) => String(value).replaceAll('|', '\\|').replaceAll('\n', ' ')
 
 export function markdown(result) {
-  const lines = [`# Performance harness ${VERSION}`, '', 'Spread is p75 − p25. Delta is candidate − baseline. Time, bytes, and counts improve when they fall.', '']
+  const lines = [`# Performance harness ${VERSION}`, '', `Measurement host: ${escape(result.measurementHost)}`, '',
+    'Spread is p75 − p25. Delta is candidate − baseline. Time, bytes, and counts improve when they fall.', '']
   for (const table of result.tables) {
     lines.push(`## ${table.scenario}: ${table.metric} (${table.unit})`, '',
       '| Target | n | Median | p25–p75 | Min–max |', '| --- | ---: | ---: | ---: | ---: |')

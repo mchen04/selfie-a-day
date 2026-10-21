@@ -35,7 +35,11 @@ export function actionTiming(action, stamp) {
     startSource: missing ? 'before-click fallback' : 'click', clock: 'browser performance.timeOrigin + performance.now' }
 }
 
-export async function timelineDecoded() {
+export function timelineDecoded() {
+  const state = globalThis.__perf.timelineDecode
+  if (state?.error) throw new Error(`Timeline thumbnail decode failed: ${state.error}`)
+  if (state?.result) return state.result
+  if (state) return false
   const cells = [...document.querySelectorAll('[data-testid="timeline-cell"]')]
   if (cells.length !== 60) return false
   const visible = cells.filter((cell) => {
@@ -45,8 +49,12 @@ export async function timelineDecoded() {
   if (!visible.length) return false
   const images = visible.map((cell) => cell.querySelector('img'))
   if (images.some((image) => !image || !image.complete || !image.naturalWidth)) return false
-  await Promise.all(images.map((image) => image.decode()))
-  return { finishedAt: performance.timeOrigin + performance.now(), decoded: images.length }
+  const pending = {}
+  globalThis.__perf.timelineDecode = pending
+  Promise.all(images.map((image) => image.decode())).then(() => {
+    pending.result = { finishedAt: performance.timeOrigin + performance.now(), decoded: images.length }
+  }, (error) => { pending.error = error.message })
+  return false
 }
 
 export function bodyHeaders(headers = {}) {

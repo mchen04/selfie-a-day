@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { runInNewContext } from 'node:vm'
+import { hostname } from 'node:os'
 import { JSDOM } from 'jsdom'
 import { references } from './assets.mjs'
-import { firstScreenReady, completeOnboarding, newPage } from './browser.mjs'
+import { firstScreenReady, completeOnboarding, newPage, offlineReady } from './browser.mjs'
 import { servedDelivery } from './sizes.mjs'
 import { summarize, markdown } from './summarize.mjs'
 import { envelope, validateSample, validateLabOutput, SETTINGS } from './common.mjs'
@@ -149,24 +150,54 @@ export async function regressionChecks(guardedSample) {
 
   const timeline = screen('<main data-testid="timeline-screen">' + '<button data-testid="timeline-cell"><img></button>'.repeat(60) + '</main>')
   try {
+    let clock = 900
+    const context = { document: timeline.document, innerHeight: 664, innerWidth: 390, __perf: { actions: {} },
+      performance: { timeOrigin: 1792611404000, now: () => clock } }
+    const poll = () => runInNewContext(`(${timelineDecoded.toString()})()`, context)
+    const action = { testId: 'nav-timeline', fallbackAt: 1792611404849.7 }
+    const clickAt = 1792611404881.4
+    assert.equal(poll(), false); checks++
+    assert.throws(() => actionTiming(action, { clickAt, finishedAt: undefined }), /finish=undefined/); checks++
+    let finishDecode
+    const decoding = new Promise((resolve) => { finishDecode = resolve })
     for (const cell of timeline.document.querySelectorAll('[data-testid="timeline-cell"]')) cell.getBoundingClientRect = () => ({ top: 100, bottom: 200, left: 0, right: 120 })
     for (const image of timeline.document.querySelectorAll('img')) {
       Object.defineProperty(image, 'complete', { value: true })
       Object.defineProperty(image, 'naturalWidth', { value: 120 })
-      image.decode = async () => {}
+      image.decode = () => decoding
     }
-    const context = { document: timeline.document, innerHeight: 664, innerWidth: 390, __perf: { actions: {} },
-      performance: { timeOrigin: 1000, now: () => 300 } }
-    const decoded = await runInNewContext(`(${timelineDecoded.toString()})()`, context)
+    assert.equal(poll(), false); checks++
+    assert.equal(poll(), false); checks++
+    clock = 1001.4
+    finishDecode()
+    await new Promise((resolve) => setImmediate(resolve))
+    const decoded = poll()
     const stamp = runInNewContext(`(${actionStamp.toString()})({testId:'nav-timeline'})`, context)
-    const timing = actionTiming({ testId: 'nav-timeline', fallbackAt: 1200 }, { ...stamp, finishedAt: decoded.finishedAt })
+    const timing = actionTiming(action, { ...stamp, finishedAt: decoded.finishedAt })
     assert.equal(decoded.decoded, 60); checks++
-    assert.equal(timing.elapsedMs, 100); assert.equal(timing.startSource, 'before-click fallback'); checks++
+    assert.equal(decoded.finishedAt, 1792611405001.4); checks++
+    assert.ok(Math.abs(timing.elapsedMs - 151.7) < 0.001); assert.equal(timing.startSource, 'before-click fallback'); checks++
     validateSample({ target: 'candidate', scenario: 'timeline-60', round: 1, status: 'ok', metrics: { readyMs: { value: timing.elapsedMs, unit: 'ms' } } }); checks++
-    const clicked = actionTiming({ testId: 'nav-timeline', fallbackAt: 1200 }, { clickAt: 1210, finishedAt: decoded.finishedAt })
-    assert.equal(clicked.elapsedMs, 90); assert.equal(clicked.startSource, 'click'); checks++
+    const clicked = actionTiming(action, { clickAt, finishedAt: decoded.finishedAt })
+    assert.equal(clicked.elapsedMs, 120); assert.equal(clicked.startSource, 'click'); checks++
     assert.throws(() => actionTiming({ testId: 'nav-timeline', fallbackAt: 1200 }, { clickAt: 1500, finishedAt: 1300 }), /Invalid action timing/); checks++
+    delete context.__perf.timelineDecode
+    for (const image of timeline.document.querySelectorAll('img')) image.decode = async () => { throw new Error('synthetic decode failure') }
+    assert.equal(poll(), false); checks++
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.throws(poll, /synthetic decode failure/); checks++
   } finally { timeline.close() }
+
+  const workerContext = { navigator: { serviceWorker: { controller: { state: 'activated' },
+    getRegistration: async () => ({ active: { state: 'activated' } }) } },
+    caches: { keys: async () => ['synthetic'], open: async () => ({ keys: async () => [{ url: 'http://127.0.0.1:4319/index.html' }] }) }, URL }
+  const workerPage = { async waitForFunction(predicate) {
+    const result = runInNewContext(`(${predicate.toString()})()`, workerContext)
+    assert.equal(result, true)
+  }, async evaluate(predicate) { return runInNewContext(`(${predicate.toString()})()`, workerContext) } }
+  await offlineReady(workerPage); checks++
+  workerContext.caches.keys = async () => []
+  await assert.rejects(offlineReady(workerPage), /no cached app shell/); checks++
 
   const toast = screen('<button data-testid="shutter">Capture</button><div data-testid="toast" style="display:none"></div>')
   try {
@@ -217,5 +248,13 @@ export async function regressionChecks(guardedSample) {
   assert.deepEqual(uploaded.parts, { masterBytes: 800, thumbBytes: 40 }); checks++
   assert.equal(uploaded.requestBytesSource, 'content-length'); checks++
   await assert.rejects(uploadMeasurements({ requestBody: async () => ({ requestBytes: null }) }, response), /uploadRequestBytes: value=null/); checks++
+  assert.equal(envelope('sizes', {}).machine.hostname, hostname()); checks++
+  for (const kinds of [['lab', 'lab'], ['lighthouse', 'lighthouse'], ['lab', 'lighthouse']]) {
+    const reports = kinds.map((kind, index) => envelope(kind, { machine: { hostname: `synthetic-host-${index}` }, samples: [] }))
+    assert.throws(() => summarize(reports), /Measurement hosts differ/); checks++
+    reports[1].machine.hostname = reports[0].machine.hostname
+    assert.equal(summarize(reports).measurementHost, reports[0].machine.hostname); checks++
+  }
+  assert.throws(() => summarize([envelope('lab', { machine: {}, samples: [] })]), /hostname missing/); checks++
   return checks
 }

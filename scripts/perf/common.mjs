@@ -41,7 +41,7 @@ export function targetSpec(value) {
 }
 
 export function envelope(kind, data) {
-  return { harnessVersion: VERSION, kind, createdAt: new Date().toISOString(), ...data }
+  return { harnessVersion: VERSION, kind, createdAt: new Date().toISOString(), machine: machine(), ...data }
 }
 
 export async function jsonFile(path, data) {

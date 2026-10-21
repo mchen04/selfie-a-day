@@ -1,11 +1,12 @@
 # Performance harness v1
 
-Measure frozen production builds on the Mac mini. The harness never builds or changes the app.
+Measure frozen production builds on one quiet Mac; the supervisor uses mbp-main. The harness never builds or changes the app.
 All reports identify harness version `v1`. Keep the harness unchanged during a comparison.
 
 ## Prerequisites
 
-- Use one Mac mini, one checkout, one Node version, and one installed Chromium version.
+- Use one quiet Mac, one checkout, one Node version, and one installed Chromium version.
+- Compare reports from the same host only. Remeasure both frozen inputs after a host change.
 - Use the existing project dependencies. Lighthouse is an external executable.
 - Generate the repository camera fixture with `npm run fixtures` before freezing the inputs.
 - Keep each production `dist/` in a separate folder. Build both inputs with the same mode and toolchain.
@@ -13,7 +14,7 @@ All reports identify harness version `v1`. Keep the harness unchanged during a c
 - Stop other heavy work. Keep the power source, display state, and thermal conditions steady.
 - Use the local Worker only. Never point the harness at a production API.
 
-Set these paths on the mini:
+Set these paths on the measurement Mac:
 
 ```sh
 cd /path/to/selfie-a-day
@@ -60,7 +61,7 @@ node scripts/perf/lab.mjs --target "candidate=$PERF_CANDIDATE_DIST,http://127.0.
 Each command writes `lab.json`. These reports share the same settings and schema.
 Separate commands show each build's behavior. A keep decision requires the interleaved command below.
 
-## Readiness smoke on the mini
+## Readiness smoke on the measurement Mac
 
 Start the local Worker, then run one sample of each relevant path against both frozen builds:
 
@@ -101,6 +102,7 @@ The original build skips account, API-seeded timeline, and API snapshot scenario
 A cloud build without an API argument skips signed-in scenarios. Cold still measures its account screen.
 
 Reports include machine details, Node and browser versions, fixture and image hashes, settings, and every build file's SHA-256.
+Every report records `machine.hostname` from `os.hostname()`. Summaries reject missing or different input hostnames, including Lighthouse reports.
 The harness checks that build files remain unchanged after the run.
 It saves partial results after every sample. Any failed sample sets a nonzero exit code.
 Skips remain visible and never become zero-valued measurements.
@@ -202,6 +204,7 @@ Incomplete multipart data never becomes a zero-byte upload. Missing byte counts 
 `uploadResponseBytes` counts the encoded response body. `uploadMasterBytes` and `uploadThumbBytes` record file sizes when visible.
 The upload response's photo DTO confirms those part sizes. Evidence records each byte count's source.
 Timeline waits for all 60 cells and decodes only thumbnails that intersect the viewport.
+Polling stays synchronous while decoding runs. The finish mark uses the same browser clock as the action start.
 Snapshot time includes network transfer; JSON parsing follows timing. Its decoded `bodyBytes` and compressed wire `transferBytes` differ.
 
 FCP and LCP come from browser paint observations around readiness. LCP is the last observed candidate at that point.
@@ -274,4 +277,4 @@ The self-check validates arguments, rejects bad inputs, checks sample schema, an
 It also checks minified references, delivery totals, readiness modes, onboarding clicks, repeated-error limits, and load reporting.
 Timing fixtures include a missing timeline action mark, invalid metric values, and independent save/upload endpoints.
 Upload fixtures cover multipart byte counts, partial CDP data, header event order, and visible file-part sizes.
-Run builds, browser scenarios, Lighthouse, and actual measurements only on the mini.
+The supervisor runs builds, browser checks, Lighthouse, and measurements on mbp-main.
