@@ -1,5 +1,5 @@
 import { DEFAULT_SETTINGS, SCHEMA_VERSION, type Settings } from '../core/types.ts'
-import { readMetaValue, writeMetaValue } from './photos.ts'
+import { readValue, writeValue, userKey } from './local.ts'
 
 const SETTINGS_KEY = 'settings'
 
@@ -13,10 +13,10 @@ const GRID_STYLES: readonly Settings['gridStyle'][] = ['thirds', 'crosshair', 'o
  * able to stop the app from opening the camera, so every field falls back
  * independently to its default.
  */
-export async function loadSettings(): Promise<Settings> {
+export async function loadSettings(userId = 'device'): Promise<Settings> {
   let stored: unknown = null
   try {
-    stored = await readMetaValue<unknown>(SETTINGS_KEY)
+    stored = await readValue<unknown>(userKey(userId, SETTINGS_KEY))
   } catch {
     return { ...DEFAULT_SETTINGS }
   }
@@ -37,10 +37,6 @@ export function coerceSettings(stored: unknown): Settings {
     const v = raw[key]
     return allowed.includes(v as T) ? (v as T) : fallback
   }
-  const nullableTime = (key: keyof Settings): number | null => {
-    const v = raw[key]
-    return typeof v === 'number' && Number.isFinite(v) ? v : null
-  }
   const string = (key: keyof Settings, fallback: string): string => {
     const v = raw[key]
     return typeof v === 'string' && v.length > 0 ? v : fallback
@@ -52,13 +48,11 @@ export function coerceSettings(stored: unknown): Settings {
     mirrorPreview: bool('mirrorPreview', DEFAULT_SETTINGS.mirrorPreview),
     captureLongEdge: num('captureLongEdge', 480, 4096, DEFAULT_SETTINGS.captureLongEdge),
     ghostEnabled: bool('ghostEnabled', DEFAULT_SETTINGS.ghostEnabled),
-    onboardingCompleteAt: nullableTime('onboardingCompleteAt'),
-    lastExportAt: nullableTime('lastExportAt'),
     activeAlbumId: string('activeAlbumId', DEFAULT_SETTINGS.activeAlbumId),
     schema: SCHEMA_VERSION,
   }
 }
 
-export async function saveSettings(settings: Settings): Promise<void> {
-  await writeMetaValue(SETTINGS_KEY, { ...settings, schema: SCHEMA_VERSION })
+export async function saveSettings(settings: Settings, userId = 'device'): Promise<void> {
+  await writeValue(userKey(userId, SETTINGS_KEY), { ...settings, schema: SCHEMA_VERSION })
 }

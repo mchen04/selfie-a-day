@@ -8,7 +8,7 @@ import {
   type TimelapseRangePreset,
 } from '../../core/timelapse.ts'
 import type { PhotoMeta } from '../../core/types.ts'
-import { getMaster } from '../../storage/photos.ts'
+import { getMaster } from '../../storage/images.ts'
 import {
   makeTimelapseVideo,
   supportsTimelapseExport,
@@ -56,11 +56,13 @@ export function Playback({
   const [exportProgress, setExportProgress] = useState('')
   const [readyVideo, setReadyVideo] = useState<ReadyVideo | null>(null)
   const { toast, show } = useToast()
+  const exportAbort = useRef<AbortController | null>(null)
   const cacheRef = useRef(new Map<string, string>())
   const exportSupported = supportsTimelapseExport()
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
     const current = ordered[index]
     if (!current) {
       for (const url of cacheRef.current.values()) URL.revokeObjectURL(url)
@@ -78,7 +80,7 @@ export function Playback({
         if (cancelled) return
         let url = cacheRef.current.get(photo.id)
         if (!url) {
-          const stored = await getMaster(photo.id)
+          const stored = await getMaster(photo.id, controller.signal)
           if (cancelled) return
           if (!stored) continue
           url = URL.createObjectURL(new Blob([stored.bytes], { type: stored.mime }))
@@ -94,23 +96,27 @@ export function Playback({
           cacheRef.current.delete(id)
         }
       }
-    })()
+    })().catch((error: unknown) => {
+      if (!cancelled) { setPlaying(false); show(error instanceof Error ? error.message : 'Could not load this photo.', 'error') }
+    })
 
     return () => {
       cancelled = true
+      controller.abort()
     }
-  }, [index, ordered])
+  }, [index, ordered, show])
 
   useEffect(() => {
     const cache = cacheRef.current
     return () => {
+      exportAbort.current?.abort()
       for (const url of cache.values()) URL.revokeObjectURL(url)
       cache.clear()
     }
   }, [])
 
   useEffect(() => {
-    if (!playing || ordered.length < 2) return
+    if (!playing || ordered.length < 2 || currentFrame?.id !== ordered[index]?.id) return
     const timer = window.setInterval(() => {
       setIndex((current) => {
         if (current + 1 < ordered.length) return current + 1
@@ -120,7 +126,7 @@ export function Playback({
       })
     }, 1000 / fps)
     return () => window.clearInterval(timer)
-  }, [fps, loop, ordered.length, playing])
+  }, [fps, loop, ordered, playing, currentFrame, index])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -141,13 +147,17 @@ export function Playback({
     setPlaying(false)
     setExporting(true)
     setReadyVideo(null)
+    const controller = new AbortController()
+    exportAbort.current = controller
     try {
       const video = await makeTimelapseVideo({
         photos: selected,
+        signal: controller.signal,
         fps,
         showDates,
         onProgress: (done, total) => setExportProgress(`Rendering ${done}/${total}`),
       })
+      controller.signal.throwIfAborted()
       const filename = timelapseFilename(albumName, selected, video.extension)
       const file = new File([video.blob], filename, { type: video.blob.type })
       const shareable =
@@ -159,7 +169,7 @@ export function Playback({
         show('Timelapse saved.', 'success')
       }
     } catch (error) {
-      show(error instanceof Error ? error.message : 'The timelapse could not be exported.', 'error')
+      if (!(error instanceof DOMException && error.name === 'AbortError')) show(error instanceof Error ? error.message : 'The timelapse could not be exported.', 'error')
     } finally {
       setExporting(false)
       setExportProgress('')
@@ -309,6 +319,7 @@ export function Playback({
           >
             {rangeLabel}
           </button>
+          {exporting ? <button type="button" className="btn" onClick={() => exportAbort.current?.abort()}>Cancel</button> : null}
           <button
             type="button"
             className="btn"

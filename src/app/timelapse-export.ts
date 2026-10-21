@@ -2,7 +2,7 @@ import { decodeImage, type DecodedImage } from '../camera/encode.ts'
 import { dayKeyToDate } from '../core/day.ts'
 import { orderTimelapsePhotos } from '../core/timelapse.ts'
 import type { PhotoMeta } from '../core/types.ts'
-import { getMaster } from '../storage/photos.ts'
+import { getMaster } from '../storage/images.ts'
 
 const VIDEO_TYPES = [
   'video/mp4;codecs=avc1.42E01E',
@@ -45,11 +45,13 @@ export async function makeTimelapseVideo({
   fps,
   showDates,
   onProgress,
+  signal,
 }: {
   photos: readonly PhotoMeta[]
   fps: number
   showDates: boolean
   onProgress?: (done: number, total: number) => void
+  signal?: AbortSignal
 }): Promise<TimelapseVideo> {
   if (!supportsTimelapseExport()) {
     throw new Error('Video export is not supported by this browser.')
@@ -58,7 +60,8 @@ export async function makeTimelapseVideo({
   if (!Number.isFinite(fps) || fps <= 0) throw new RangeError('Timelapse speed must be positive.')
 
   const ordered = orderTimelapsePhotos(photos)
-  let current = await decodeMaster(ordered[0]!)
+  signal?.throwIfAborted()
+  let current = await decodeMaster(ordered[0]!, signal)
   let stream: MediaStream | null = null
 
   try {
@@ -88,28 +91,22 @@ export async function makeTimelapseVideo({
 
     try {
       recorder.start()
-      let next = ordered[1] ? decodeMaster(ordered[1]) : null
 
       for (let index = 0; index < ordered.length; index += 1) {
-        if (index > 0) drawFrame(context, canvas, current, ordered[index]!.dayKey, showDates)
+        signal?.throwIfAborted()
+        if (index > 0) {
+          recorder.pause()
+          current.release()
+          current = await decodeMaster(ordered[index]!, signal)
+          signal?.throwIfAborted()
+          drawFrame(context, canvas, current, ordered[index]!.dayKey, showDates)
+          recorder.resume()
+        }
         track?.requestFrame()
         onProgress?.(index + 1, ordered.length)
-
-        const frameDelay = wait(1000 / fps)
-        let decodedNext: DecodedImage | null = null
-        if (next) {
-          const results = await Promise.all([frameDelay, next])
-          decodedNext = results[1]
-        } else {
-          await frameDelay
-        }
-        if (decodedNext) {
-          current.release()
-          current = decodedNext
-          const after = ordered[index + 2]
-          next = after ? decodeMaster(after) : null
-        }
+        await wait(1000 / fps)
       }
+      signal?.throwIfAborted()
 
       // Give the held final image a sample at the end of its interval. Without
       // this redraw, MediaRecorder ends the file one frame earlier than the UI.
@@ -133,9 +130,9 @@ export async function makeTimelapseVideo({
   }
 }
 
-async function decodeMaster(photo: PhotoMeta): Promise<DecodedImage> {
-  const stored = await getMaster(photo.id)
-  if (!stored) throw new Error(`The photo from ${photo.dayKey} is missing from this device.`)
+async function decodeMaster(photo: PhotoMeta, signal?: AbortSignal): Promise<DecodedImage> {
+  const stored = await getMaster(photo.id, signal)
+  if (!stored) throw new Error(`The photo from ${photo.dayKey} is unavailable.`)
   return decodeImage(stored.bytes, stored.mime)
 }
 

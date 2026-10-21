@@ -166,11 +166,14 @@ function Thumb({ meta }: { meta: PhotoMeta }) {
   const ref = useRef<HTMLDivElement | null>(null)
   const near = useNearViewport(ref)
   const image = useStoredImage(meta.id, 'thumb', near)
+  const { pendingIds } = useApp()
 
   return (
     <div className="cell__media" ref={ref}>
       {image.url ? (
         <img
+          width={meta.width}
+          height={meta.height}
           src={image.url}
           alt={formatDayLabel(meta.dayKey)}
           loading="lazy"
@@ -180,6 +183,7 @@ function Thumb({ meta }: { meta: PhotoMeta }) {
       ) : (
         <span className="cell__placeholder" aria-hidden="true" />
       )}
+      {pendingIds.includes(meta.id) ? <span className="upload-badge">Uploading</span> : null}
     </div>
   )
 }
