@@ -5,9 +5,11 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { getPlatformProxy, unstable_splitSqlQuery, unstable_startWorker } from 'wrangler'
+import type { PhotoDTO, PushPreference } from '../../src/api/client.ts'
 import { waitForCameraLive } from '../e2e-support/helpers.ts'
+import { reminderSchedule } from '../e2e-support/push.ts'
 
-test.use({ timezoneId: 'UTC' })
+test.use({ timezoneId: 'America/Los_Angeles' })
 
 function decrypt(bytes: Buffer, receiver: ReturnType<typeof createECDH>, auth: Buffer): unknown {
   expect(bytes.readUInt32BE(16)).toBe(4096)
@@ -126,6 +128,7 @@ test('two taps enable one encrypted reminder; a saved photo suppresses the eveni
     }, { endpoint, p256dh: receiver.getPublicKey().toString('base64url'), auth: auth.toString('base64url'), publicKey: vapid.getPublicKey().toString('base64url') })
 
     await page.setViewportSize({ width: 320, height: 740 })
+    await page.clock.setFixedTime(new Date())
     await page.goto('/')
     await page.getByLabel('Username', { exact: true }).fill(`push-${randomUUID().replaceAll('-', '').slice(0, 20)}`)
     await page.getByLabel('Password', { exact: true }).fill(randomUUID() + randomUUID())
@@ -149,11 +152,20 @@ test('two taps enable one encrypted reminder; a saved photo suppresses the eveni
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320)
     await testInfo.attach('reminders-320px', { body: await page.screenshot(), contentType: 'image/png' })
 
-    const today = new Date().toISOString().slice(0, 10)
-    const morning = Date.parse(`${today}T09:05:00Z`)
-    await runCron(morning)
+    const saved = await page.evaluate(async () => {
+      const response = await fetch('/api/push/prefs')
+      if (!response.ok) throw new Error(`Could not read reminder preferences: ${response.status}`)
+      const { prefs } = await response.json() as { prefs: PushPreference[] }
+      return { prefs, now: Date.now(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+    })
+    expect(saved.timeZone).toBe('America/Los_Angeles')
+    const pref = saved.prefs.find((pref) => pref.albumId === 'selfies')!
+    expect(pref).toMatchObject({ enabled: true, timeZone: saved.timeZone })
+    const schedule = reminderSchedule(pref, saved.now)
+    await testInfo.attach('reminder-schedule', { body: JSON.stringify({ pref, schedule }), contentType: 'application/json' })
+    await runCron(schedule.morning)
     await expect.poll(() => received.length).toBe(1)
-    await runCron(morning + 300_000)
+    await runCron(schedule.morning + 300_000)
     expect(errors).toEqual([])
     expect(received).toEqual([{ title: 'Selfies', body: "Time for today's photo.", albumId: 'selfies', tag: 'album-selfies', url: '/?album=selfies' }])
 
@@ -161,9 +173,12 @@ test('two taps enable one encrypted reminder; a saved photo suppresses the eveni
     await waitForCameraLive(page)
     const upload = page.waitForResponse((response) => /\/api\/photos\/[0-9a-z]{20}$/.test(response.url()) && response.request().method() === 'PUT')
     await page.getByTestId('shutter').click()
-    expect((await upload).status()).toBe(201)
-    await runCron(Date.parse(`${today}T20:35:00Z`))
-    await runCron(Date.parse(`${today}T21:00:00Z`))
+    const uploaded = await upload
+    expect(uploaded.status()).toBe(201)
+    const { photo } = await uploaded.json() as { photo: PhotoDTO }
+    expect(photo).toMatchObject({ dayKey: schedule.dayKey, timeZone: pref.timeZone })
+    await runCron(schedule.evening)
+    await runCron(schedule.evening + 25 * 60_000)
     expect(errors).toEqual([])
     expect(received).toHaveLength(1)
     await testInfo.attach('tap-path', { body: 'Camera → Settings → Selfies reminder switch: 2 taps. One decrypted reminder; zero evening nudges after capture.', contentType: 'text/plain' })
