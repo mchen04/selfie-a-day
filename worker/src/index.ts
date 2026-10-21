@@ -1,6 +1,6 @@
 import type { ExecutionContext, ScheduledController } from '@cloudflare/workers-types'
 import type { Env } from './core/env'
-import { authenticate, handleAuth } from './core/auth'
+import { authenticate, handleAuth, purgeExpiredAuth } from './core/auth'
 import { putAlbum } from './core/albums'
 import { HttpError, json } from './core/http'
 import { deletePhoto, emptyTrash, getImage, patchPhoto, purgeExpiredTrash, uploadPhoto } from './core/photos'
@@ -74,9 +74,11 @@ export default {
     ctx.waitUntil(Promise.allSettled([
       Promise.resolve().then(() => purgeExpiredTrash(env, controller.scheduledTime)),
       Promise.resolve().then(() => runPushScheduler(env, controller.scheduledTime)),
-    ]).then(([trash, push]) => {
+      Promise.resolve().then(() => purgeExpiredAuth(env, controller.scheduledTime)),
+    ]).then(([trash, push, auth]) => {
       if (trash.status === 'rejected') console.error('Trash purge failed')
       if (push.status === 'rejected') console.error('Push scheduler failed')
+      if (auth.status === 'rejected') console.error('Authentication cleanup failed')
     }))
   },
 }

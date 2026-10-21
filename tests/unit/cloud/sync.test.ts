@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api } from '../../../src/api/client.ts'
+import { api, ApiError } from '../../../src/api/client.ts'
 import { SyncEngine } from '../../../src/sync/engine.ts'
 import { listGhosts, listPending, queuePhoto, readSnapshot, writeSnapshot } from '../../../src/storage/local.ts'
 import { defaultAlbum } from '../../../src/core/albums.ts'
@@ -17,6 +17,34 @@ afterEach(async () => {
 })
 
 describe('sync', () => {
+  it('replaces an invalid cursor with one full snapshot and keeps pending captures', async () => {
+    const stale = photo(), currentPhoto = photo(stale.capturedAt + 1)
+    const entry = pending('synthetic-a', photo(stale.capturedAt + 2))
+    entry.nextAttemptAt = Number.MAX_SAFE_INTEGER
+    await queuePhoto(entry)
+    await writeSnapshot('synthetic-a', { albums: [defaultAlbum()], photos: [stale], cursor: 'stale' })
+    server([currentPhoto])
+    const original = api.sync
+    const sync = vi.spyOn(api, 'sync')
+    sync.mockImplementation((cursor) => cursor === 'stale' ? Promise.reject(new ApiError(400, 'invalid_cursor')) : original(cursor))
+    const current = engine()
+    await current.hydrate(); await current.refresh()
+    expect(sync.mock.calls.map(([cursor]) => cursor)).toEqual(['stale', undefined, '1'])
+    expect(current.state.photos.map((item) => item.id)).toEqual([currentPhoto.id])
+    expect(await listPending('synthetic-a')).toHaveLength(1)
+    expect((await readSnapshot('synthetic-a'))?.cursor).toBe('2')
+    expect(current.state.error).toBeNull()
+  })
+
+  it('does not loop when the full snapshot also rejects its cursor', async () => {
+    await writeSnapshot('synthetic-a', { albums: [], photos: [], cursor: 'stale' })
+    server()
+    const sync = vi.spyOn(api, 'sync').mockRejectedValue(new ApiError(400, 'invalid_cursor'))
+    const current = engine()
+    await current.hydrate(); await current.refresh()
+    expect(sync.mock.calls.map(([cursor]) => cursor)).toEqual(['stale', undefined])
+    expect((await readSnapshot('synthetic-a'))?.cursor).toBe('')
+  })
   it('cancels a queued refresh cleanly when the account closes', async () => {
     const { mocked } = server()
     const current = engine()

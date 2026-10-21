@@ -154,9 +154,41 @@ describe('push endpoints', () => {
 })
 
 describe('scheduler and Web Push encryption', () => {
+  it('uses a changed album zone for reminder time and today', async () => {
+    await subscribe()
+    await pref('09:00', 'UTC')
+    await fixture.env.DB.prepare("UPDATE albums SET time_zone = 'America/Los_Angeles' WHERE user_id = 'alice' AND id = 'selfies'").run()
+    expect((await runPushScheduler(fixture.env, at('2026-07-01T16:00:00Z'))).sent).toBe(1)
+    await photo('2026-07-02')
+    expect((await runPushScheduler(fixture.env, at('2026-07-02T16:00:00Z'))).sent).toBe(0)
+    expect(fixture.received).toHaveLength(1)
+  })
+
+  it('follows the most recently synced device zone on a DST day', async () => {
+    await subscribe('/travel')
+    await subscribe('/home')
+    await pref('09:00', 'UTC')
+    await fixture.env.DB.prepare('UPDATE push_subscriptions SET updated_at = 1').run()
+    await api('/api/push/subscription', 'PUT', fixture.subscriptionBody('/travel', 'America/New_York'))
+    expect((await runPushScheduler(fixture.env, at('2026-03-08T12:59:00Z'))).sent).toBe(0)
+    expect((await runPushScheduler(fixture.env, at('2026-03-08T13:00:00Z'))).sent).toBe(2)
+    expect((await runPushScheduler(fixture.env, at('2026-03-08T13:05:00Z'))).sent).toBe(0)
+    expect(fixture.received).toHaveLength(2)
+  })
+
+  it('uses the effective zone date to suppress photos across midnight', async () => {
+    await api('/api/push/subscription', 'PUT', fixture.subscriptionBody('/travel', 'Asia/Tokyo'))
+    await pref('08:00', 'UTC')
+    await photo('2026-07-02')
+    expect((await runPushScheduler(fixture.env, at('2026-07-01T23:05:00Z'))).sent).toBe(0)
+    await fixture.env.DB.prepare('DELETE FROM photos').run()
+    expect((await runPushScheduler(fixture.env, at('2026-07-01T23:05:00Z'))).sent).toBe(1)
+    expect(await fixture.env.DB.prepare('SELECT day_key FROM notification_log').first()).toEqual({ day_key: '2026-07-02' })
+  })
   it('sends an independently decryptable reminder at the local time, never before it', async () => {
     await subscribe()
     await pref('09:00', 'America/Los_Angeles')
+    await fixture.env.DB.prepare("UPDATE albums SET time_zone = 'America/Los_Angeles' WHERE user_id = 'alice' AND id = 'selfies'").run()
     expect(await runPushScheduler(fixture.env, at('2026-07-01T15:59:00Z'))).toEqual({ sent: 0, skipped: 1, removed: 0 })
     expect(await runPushScheduler(fixture.env, at('2026-07-01T16:00:00Z'))).toEqual({ sent: 1, skipped: 0, removed: 0 })
     expect(fixture.received).toHaveLength(1)
@@ -286,6 +318,7 @@ describe('scheduler and Web Push encryption', () => {
   it('fires once after the Los Angeles spring-forward gap for a 02:30 reminder', async () => {
     await subscribe()
     await pref('02:30', 'America/Los_Angeles')
+    await fixture.env.DB.prepare("UPDATE albums SET time_zone = 'America/Los_Angeles' WHERE user_id = 'alice' AND id = 'selfies'").run()
     expect((await runPushScheduler(fixture.env, at('2026-03-08T09:55:00Z'))).sent).toBe(0)
     expect((await runPushScheduler(fixture.env, at('2026-03-08T10:00:00Z'))).sent).toBe(1)
     expect((await runPushScheduler(fixture.env, at('2026-03-08T10:30:00Z'))).sent).toBe(0)
@@ -295,6 +328,7 @@ describe('scheduler and Web Push encryption', () => {
   it('fires exactly once through both Los Angeles fall-back 01:30 hours', async () => {
     await subscribe()
     await pref('01:30', 'America/Los_Angeles')
+    await fixture.env.DB.prepare("UPDATE albums SET time_zone = 'America/Los_Angeles' WHERE user_id = 'alice' AND id = 'selfies'").run()
     expect((await runPushScheduler(fixture.env, at('2026-11-01T08:25:00Z'))).sent).toBe(0)
     expect((await runPushScheduler(fixture.env, at('2026-11-01T08:30:00Z'))).sent).toBe(1)
     expect((await runPushScheduler(fixture.env, at('2026-11-01T09:30:00Z'))).sent).toBe(0)

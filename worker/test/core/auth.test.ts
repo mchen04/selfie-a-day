@@ -115,10 +115,19 @@ describe('accounts and sessions in workerd', () => {
     expect(reset.status).toBe(401)
   })
 
-  it('blocks the thirtieth daily failure even with a fresh fifteen-minute window', async () => {
+  it('rejects excess concurrent guesses before password verification in workerd', async () => {
+    const username = `parallel-${randomBytes(5).toString('hex')}`
+    const responses = await Promise.all(Array.from({ length: 20 }, (_, index) => h.request('/api/auth/login', {
+      method: 'POST', json: { username, password: TEST_PASSWORD }, ip: `198.18.0.${index + 1}`,
+    })))
+    expect(responses.filter((response) => response.status === 401)).toHaveLength(10)
+    expect(responses.filter((response) => response.status === 429)).toHaveLength(10)
+  })
+
+  it('blocks after thirty daily failures even with a fresh fifteen-minute window', async () => {
     const user = await h.user()
     const wrongPassword = randomBytes(18).toString('base64url')
-    for (let index = 0; index < 29; index++) {
+    for (let index = 0; index < 30; index++) {
       const response = await h.request('/api/auth/login', {
         method: 'POST', json: { username: ` ${user.username.toUpperCase()} `, password: wrongPassword },
         ip: `198.51.100.${index + 1}`, now: TEST_NOW + Math.floor(index / 10) * 900000,
@@ -150,6 +159,9 @@ describe('accounts and sessions in workerd', () => {
     expect(success.status).toBe(200)
     const daily = await h.env.DB.prepare('SELECT window_start, count FROM auth_attempts WHERE key = ?').bind(key).first()
     expect(daily).toEqual({ window_start: TEST_NOW, count: 29 })
+    expect((await h.request('/api/auth/login', {
+      method: 'POST', json: { username: user.username, password: randomBytes(18).toString('base64url') }, now: now + 1,
+    })).status).toBe(401)
     const blocked = await h.request('/api/auth/login', {
       method: 'POST', json: { username: user.username, password: randomBytes(18).toString('base64url') }, now: now + 1,
     })

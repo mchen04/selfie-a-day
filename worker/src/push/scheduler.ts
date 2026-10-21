@@ -22,7 +22,9 @@ function localTime(now: number, timeZone: string) {
 export async function runPushScheduler(env: PushEnv, now: number): Promise<{ sent: number; skipped: number; removed: number }> {
   const result = { sent: 0, skipped: 0, removed: 0 }
   if (!env.VAPID_PRIVATE_KEY || !env.VAPID_PUBLIC_KEY) return result
-  const prefs = await env.DB.prepare(`SELECT p.user_id, p.album_id, p.time, p.time_zone, a.name FROM push_prefs p
+  const prefs = await env.DB.prepare(`SELECT p.user_id, p.album_id, p.time, a.name,
+    coalesce(a.time_zone, (SELECT s.time_zone FROM push_subscriptions s WHERE s.user_id = p.user_id
+      ORDER BY s.updated_at DESC, s.endpoint DESC LIMIT 1)) AS time_zone FROM push_prefs p
     JOIN albums a ON a.user_id = p.user_id AND a.id = p.album_id AND a.deleted_at IS NULL
     WHERE p.enabled = 1 AND EXISTS (SELECT 1 FROM push_subscriptions s WHERE s.user_id = p.user_id)
     ORDER BY p.user_id, p.album_id`).all<Pref>()

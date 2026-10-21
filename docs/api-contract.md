@@ -105,3 +105,40 @@ No other endpoint, method, header, status, error-code or DTO mismatch appears in
 The default Worker tests retain real Miniflare and local HTTP delivery.
 The socket-free mode checks the same push rules with SQLite and an in-memory receiver.
 Browser and Miniflare checks remain separate acceptance requirements.
+
+## Security and retention regressions
+
+Each finding below fails before its fix.
+The listed checks cover the changed behavior with synthetic data.
+
+| Finding | Current behavior | Failing regression name and file |
+|---|---|---|
+| 1. Parallel login guesses bypass limits | Atomic counter reservations precede password verification. Rejected reservations are returned. Success clears the short username counter and returns daily/IP reservations. | `reserves concurrent guesses before password verification` — `worker/test/core/session-security.test.ts` |
+| 2. Session expiry deletes queued captures | A protected 401 clears the current account pointer and UI. User-scoped photos, snapshots and ghosts remain for later sign-in. Explicit logout still clears its user's data after the existing warning. | `keeps queued photos and caches on 401 and resumes uploads for the same user`; `isolates retained photos when another user signs in and clears only an explicit logout` — `tests/unit/cloud/session.test.ts` |
+| 3. Reminder zone becomes stale | Cron uses the album zone when set. Otherwise it uses the subscription with the latest server `updated_at`. This zone controls both time and dayKey. | `uses a changed album zone for reminder time and today`; `follows the most recently synced device zone on a DST day`; `uses the effective zone date to suppress photos across midnight` — `worker/test/push/push.test.ts` |
+| 4. Permanent actions need confirmation | Empty changes to Confirm. Delete changes to Delete forever?. The second tap acts; blur cancels confirmation. No modal opens. | `requires two taps for empty-trash and resets confirmation on blur`; `requires two taps for trash-delete-permanently and resets confirmation on blur` — `tests/unit/trash.test.ts` |
+| 5. Client clocks shorten Trash retention | PATCH validates the deletion marker but stores server `now` for trash. Restore stores null. The response and sync supply the saved timestamp. | `starts trash retention at server time despite an old client clock` — `worker/test/core/session-security.test.ts` |
+| 6. Invalid cursors prevent recovery | A 400 `invalid_cursor` clears the persisted cursor and tries one full snapshot. A rejected full snapshot stops that refresh. Pending captures remain. | `replaces an invalid cursor with one full snapshot and keeps pending captures`; `does not loop when the full snapshot also rejects its cursor` — `tests/unit/cloud/sync.test.ts` |
+| 7. Push writes accept unbounded JSON | Subscription PUT/DELETE and preference PUT use the shared 16 KiB reader. Oversized bodies return 413 `payload_too_large`. | `caps subscription PUT bodies at 16 KiB`; `caps subscription DELETE bodies at 16 KiB`; `caps prefs/selfies PUT bodies at 16 KiB` — `worker/test/core/push.test.ts` |
+| 8. Each image request writes session activity | Activity updates at most once per hour. The UPDATE also checks the stored timestamp to cover concurrent requests. Renewal still writes when due. | `writes session activity at most once an hour while renewal still writes when due` — `worker/test/core/session-security.test.ts` |
+| 9. Authentication rows never expire | An independent cron job removes at most 100 expired sessions and 100 expired counters per invocation. Counter expiry respects its 15-minute, hourly or daily window. It uses scheduledTime. | `purges expired authentication rows in bounded cron batches using scheduled time`; `expires counters only when their own login, daily or signup window ends` — `worker/test/core/session-security.test.ts` |
+
+The concurrency check admits ten password checks from twenty simultaneous wrong logins.
+Ten responses are 401; ten are 429.
+The daily reservation permits the thirtieth check and blocks the thirty-first.
+A successful check returns its daily and IP reservation without erasing earlier failures.
+The activity check measures zero writes for ten requests within an hour.
+Ten concurrent requests at the hour boundary make one activity write.
+
+The scheduler checks spring-forward and fall-back DST behavior with the same effective zone rule.
+The cleanup check deliberately sets wall-clock time beyond scheduledTime to detect the wrong clock source.
+The default push test mode still uses Miniflare and a real local receiver.
+The socket-free mode uses SQLite and the same scheduler code.
+
+Additional browser checks cover retained uploads after cookie loss and the inline Empty confirmation.
+The existing Trash browser flow now confirms permanent deletion with its second tap.
+Workerd coverage also sends twenty concurrent wrong logins through the real Worker entry point.
+These browser and workerd checks require the mini.
+
+Album IDs remain globally unique.
+PUT with another owner's album ID returns 404 without creating an album.

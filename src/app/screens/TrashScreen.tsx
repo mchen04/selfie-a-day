@@ -12,6 +12,8 @@ export function TrashScreen() {
   const { trashedMetas, albums, actions, status } = useApp()
   const { toast, show } = useToast()
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [confirmingPermanent, setConfirmingPermanent] = useState<string | null>(null)
+  const [confirmingEmpty, setConfirmingEmpty] = useState(false)
   const [now] = useState(() => Date.now())
   const albumNames = useMemo(
     () => new Map(albums.map((album) => [album.id, album.name])),
@@ -31,6 +33,10 @@ export function TrashScreen() {
   }
 
   const removePermanently = async (id: string) => {
+    if (confirmingPermanent !== id) {
+      setConfirmingPermanent(id)
+      return
+    }
     setBusyId(id)
     try {
       await actions.deletePhotoPermanently(id)
@@ -39,10 +45,15 @@ export function TrashScreen() {
       show(err instanceof Error ? err.message : 'The photo could not be deleted.', 'error')
     } finally {
       setBusyId(null)
+      setConfirmingPermanent(null)
     }
   }
 
   const empty = async () => {
+    if (!confirmingEmpty) {
+      setConfirmingEmpty(true)
+      return
+    }
     setBusyId('all')
     try {
       const removed = await actions.emptyTrash()
@@ -51,6 +62,7 @@ export function TrashScreen() {
       show(err instanceof Error ? err.message : 'Trash could not be emptied.', 'error')
     } finally {
       setBusyId(null)
+      setConfirmingEmpty(false)
     }
   }
 
@@ -76,11 +88,13 @@ export function TrashScreen() {
           <button
             type="button"
             className="topbar__text-action"
+            data-danger={confirmingEmpty}
             disabled={busyId !== null}
             onClick={() => void empty()}
+            onBlur={() => setConfirmingEmpty(false)}
             data-testid="empty-trash"
           >
-            Empty
+            {confirmingEmpty ? 'Confirm' : 'Empty'}
           </button>
         ) : null}
       </header>
@@ -109,8 +123,10 @@ export function TrashScreen() {
                 now={now}
                 albumName={albumNames.get(meta.albumId) ?? 'Album'}
                 busy={busyId !== null}
+                confirmingPermanent={confirmingPermanent === meta.id}
                 onRestore={() => void restore(meta.id)}
                 onDelete={() => void removePermanently(meta.id)}
+                onDeleteBlur={() => setConfirmingPermanent(null)}
               />
             ))}
           </ul>
@@ -129,8 +145,10 @@ function TrashItem({
   now,
   albumName,
   busy,
+  confirmingPermanent,
   onRestore,
   onDelete,
+  onDeleteBlur,
 }: {
   id: string
   dayKey: string
@@ -138,8 +156,10 @@ function TrashItem({
   now: number
   albumName: string
   busy: boolean
+  confirmingPermanent: boolean
   onRestore: () => void
   onDelete: () => void
+  onDeleteBlur: () => void
 }) {
   const image = useStoredImage(id, 'thumb')
   const daysLeft = Math.max(0, Math.ceil((deletedAt + TRASH_RETENTION_MS - now) / 86_400_000))
@@ -168,9 +188,10 @@ function TrashItem({
             className="btn btn--danger"
             disabled={busy}
             onClick={onDelete}
+            onBlur={onDeleteBlur}
             data-testid="trash-delete-permanently"
           >
-            <IconTrash size={17} /> Delete
+            <IconTrash size={17} /> {confirmingPermanent ? 'Delete forever?' : 'Delete'}
           </button>
         </div>
       </div>

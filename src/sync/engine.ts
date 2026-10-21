@@ -83,8 +83,17 @@ export class SyncEngine {
   }
 
   private async pull() {
-    const full = !this.state.cursor
-    const delta = await api.sync(full ? undefined : this.state.cursor)
+    let full = !this.state.cursor
+    let delta
+    try { delta = await api.sync(full ? undefined : this.state.cursor) }
+    catch (error) {
+      if (full || !(error instanceof ApiError) || error.status !== 400 || error.code !== 'invalid_cursor') throw error
+      if (!this.active) return
+      this.emit({ cursor: '' })
+      await this.persist()
+      full = true
+      delta = await api.sync()
+    }
     if (!this.active) return
     const albums = new Map((full ? [] : this.state.albums).map((album) => [album.id, album]))
     const photos = new Map((full ? [] : this.state.photos).map((photo) => [photo.id, photo]))

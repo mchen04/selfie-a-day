@@ -7,7 +7,9 @@ import { authenticate } from '../../src/core/auth'
 import type { Env } from '../../src/core/env'
 import { SqliteDatabase } from '../push/sqlite'
 
-vi.mock('../../src/core/auth', () => ({ authenticate: vi.fn(), handleAuth: () => Promise.resolve(null) }))
+vi.mock('../../src/core/auth', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../src/core/auth')>(), authenticate: vi.fn(), handleAuth: () => Promise.resolve(null),
+}))
 
 const origin = 'https://selfie-a-day.example'
 let db: SqliteDatabase
@@ -38,6 +40,16 @@ function request(path: string, method = 'GET', body?: unknown) {
 }
 
 describe('push through the Worker router', () => {
+  it.each([['subscription', 'PUT'], ['subscription', 'DELETE'], ['prefs/selfies', 'PUT']])('caps %s %s bodies at 16 KiB', async (path, method) => {
+    const receiver = createECDH('prime256v1')
+    receiver.generateKeys()
+    const response = await request(path, method, {
+      endpoint: 'http://127.0.0.1:8788/push', keys: { p256dh: receiver.getPublicKey().toString('base64url'), auth: randomBytes(16).toString('base64url') },
+      enabled: true, time: '09:00', timeZone: 'UTC', padding: 'x'.repeat(16_384),
+    })
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({ error: 'payload_too_large' })
+  })
   it('serves config and saves album preferences through authenticated routes', async () => {
     const config = await request('config')
     expect(config.status).toBe(200)

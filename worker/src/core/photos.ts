@@ -177,7 +177,7 @@ export async function patchPhoto(request: Request, env: Env, userId: string, id:
   try {
     const row = await env.DB.prepare(`UPDATE photos SET deleted_at = ?, updated_at = ?
       WHERE user_id = ? AND id = ? AND purged_at IS NULL RETURNING ${PHOTO_COLUMNS}`)
-      .bind(body.deletedAt, now, userId, id).first<PhotoRow>()
+      .bind(body.deletedAt === null ? null : now, now, userId, id).first<PhotoRow>()
     if (!row) throw new HttpError(404, 'not_found')
     return json({ photo: photoDto(row) })
   } catch (error) {

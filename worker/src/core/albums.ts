@@ -17,6 +17,7 @@ export async function putAlbum(request: Request, env: Env, userId: string, id: s
     if (!row) throw new Error('album_failed')
     return json({ album: albumDto(row) })
   } catch (error) {
+    // Album IDs are globally unique; another owner's ID returns 404.
     if (String(error).includes('UNIQUE constraint failed: albums.id')) throw new HttpError(404, 'not_found')
     if (String(error).includes('UNIQUE constraint failed')) throw new HttpError(409, 'album_name_taken')
     throw error

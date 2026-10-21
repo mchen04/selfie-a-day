@@ -27,6 +27,7 @@ export function writeValue(key: string, value: unknown): Promise<void> {
 export const userKey = (userId: string, key: string) => `user:${userId}:${key}`
 export const cachedUser = () => readValue<User>('user')
 export const cacheUser = (user: User) => writeValue('user', { id: user.id, username: user.username })
+export const forgetCachedUser = () => withTransaction(STORE_META, 'readwrite', (tx) => { tx.objectStore(STORE_META).delete('user') })
 export const readSnapshot = (userId: string) => readValue<Snapshot>(userKey(userId, 'snapshot'))
 export const writeSnapshot = (userId: string, snapshot: Snapshot) => writeValue(userKey(userId, 'snapshot'), snapshot)
 

@@ -23,8 +23,27 @@ test('trash, undo, restore, and permanently delete a server photo', async ({ pag
   await expect.poll(async () => (await snapshot(page.request)).photos[0]?.deletedAt).not.toBeNull()
   await page.goto('/trash')
   await page.getByTestId('trash-delete-permanently').click()
+  await expect(page.getByTestId('trash-delete-permanently')).toHaveText('Delete forever?')
+  await page.getByTestId('trash-delete-permanently').click()
   await expect(page.getByTestId('trash-empty')).toBeVisible()
   expect((await page.request.get(`/api/photos/${photo.id}/master`)).status()).toBe(404)
+})
+
+test('Empty requires an inline second tap before deleting server photos', async ({ page }) => {
+  await page.goto('/')
+  await completeOnboarding(page)
+  const photo = await seedPhoto(page, '2026-08-09')
+  await page.goto(`/photo/${photo.id}`)
+  await page.getByTestId('photo-delete').click()
+  await expect(page.getByTestId('undo-trash')).toBeVisible()
+  await page.goto('/trash')
+  await expect(page.getByTestId('trash-item')).toHaveCount(1)
+  await page.getByTestId('empty-trash').click()
+  await expect(page.getByTestId('empty-trash')).toHaveText('Confirm')
+  expect((await snapshot(page.request)).photos).toHaveLength(1)
+  await page.getByTestId('empty-trash').click()
+  await expect(page.getByTestId('trash-empty')).toBeVisible()
+  expect((await snapshot(page.request)).photos).toEqual([])
 })
 
 test('a delayed restore stays visible until a full navigation can read the restored photo', async ({ page }) => {

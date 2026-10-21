@@ -16,6 +16,8 @@ A newer local timer choice takes priority.
 
 Retaking a photo moves the previous photo for that album and day to Trash.
 Trash retains photos for 30 days.
+The server clock starts that period.
+Empty and permanent deletion each require two taps on the same inline button.
 Restore fails if that day already has an active photo.
 Albums can follow the device timezone or use a fixed IANA timezone.
 The timeline includes timelapse playback, date filters and video export.
@@ -24,6 +26,7 @@ Settings includes one reminder row per album.
 Reminders require browser permission and an installed PWA on iPhone.
 The scheduler skips reminders once today's photo exists.
 It supports one evening nudge and milestone messages.
+Reminders follow the album's fixed zone, or the most recently synced device zone.
 
 ## Storage and privacy
 
@@ -37,6 +40,8 @@ Offline captures wait in an account-scoped upload queue.
 They upload when the connection returns.
 Signing out clears local account data and removes this device's push subscription.
 One confirmation warns if pending captures will be lost.
+An expired session opens sign-in and keeps that user's captures and caches.
+Signing back in resumes uploads; another account cannot see or upload them.
 Old local photo stores are discarded during the database upgrade.
 
 Use **Download my photos** in Settings for a ZIP of dated images and metadata.
@@ -75,6 +80,7 @@ npx playwright test
 
 `verify` runs type checks, lint, client tests, Worker tests and the production build.
 The Worker command covers both account/photo code and push code.
+Cron removes expired sessions and stale login counters in bounded batches.
 Its push tests use real Miniflare D1 and a local HTTP receiver by default.
 They generate throwaway keys and decrypt delivered messages.
 When a sandbox blocks sockets, run only the socket-free checks:

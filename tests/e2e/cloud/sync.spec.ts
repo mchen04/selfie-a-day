@@ -79,3 +79,27 @@ test('logout warns once about pending photos and clears local account data', asy
     db.close(); return counts
   })).toEqual([0, 0, 0])
 })
+
+test('an expired session keeps an offline capture until the same account signs back in', async ({ page, context }) => {
+  const account = await createAccount(page.request)
+  await page.goto('/')
+  await waitForCameraLive(page)
+  await page.route('**/api/photos/*', async (route) => {
+    if (route.request().method() === 'PUT') await route.abort()
+    else await route.continue()
+  })
+  const id = await captureOnce(page, false)
+  await context.clearCookies()
+  await syncPage(page)
+  await expect(page.getByTestId('account-screen')).toBeVisible()
+  await page.reload()
+  await expect(page.getByTestId('account-screen')).toBeVisible()
+  expect(await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve) => { const request = indexedDB.open('selfie-a-day'); request.onsuccess = () => resolve(request.result) })
+    const count = await new Promise<number>((resolve) => { const request = db.transaction('outbox').objectStore('outbox').count(); request.onsuccess = () => resolve(request.result) })
+    db.close(); return count
+  })).toBe(1)
+  await page.unroute('**/api/photos/*')
+  await signIn(page, account)
+  await expect.poll(async () => (await snapshot(page.request)).photos.some((photo) => photo.id === id), { timeout: 30_000 }).toBe(true)
+})
