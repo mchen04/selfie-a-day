@@ -126,10 +126,25 @@ describe('accounts and sessions in workerd', () => {
     expect(blocked.headers.get('Retry-After')).toBe('900')
   })
 
-  it('uses the first forwarded IP when cf-connecting-ip is absent', async () => {
-    await h.sql('INSERT INTO auth_attempts (key, window_start, count) VALUES (?, ?, ?)', 'login-ip:203.0.113.56', TEST_NOW, 50)
-    const response = await h.request('/api/auth/login', { method: 'POST', json: { username: 'someone', password: TEST_PASSWORD }, headers: { 'cf-connecting-ip': '', 'x-forwarded-for': '203.0.113.56, 203.0.113.57' } })
-    expect(response.status).toBe(429)
+  it.each([
+    { name: 'the first forwarded IP when both headers exist', limited: '203.0.113.56', headers: { 'cf-connecting-ip': '203.0.113.57', 'x-forwarded-for': ' 203.0.113.56 , 203.0.113.58' }, status: 429 },
+    { name: 'cf-connecting-ip when no forwarded IP exists', limited: '203.0.113.59', headers: { 'cf-connecting-ip': '203.0.113.59' }, status: 429 },
+    { name: 'an unblocked forwarded IP despite a blocked shared egress IP', limited: '203.0.113.61', headers: { 'cf-connecting-ip': '203.0.113.61', 'x-forwarded-for': '203.0.113.62, 203.0.113.63' }, status: 401 },
+  ])('uses $name for login limits', async ({ limited, headers, status }) => {
+    await h.sql('INSERT INTO auth_attempts (key, window_start, count) VALUES (?, ?, ?)', `login-ip:${limited}`, TEST_NOW, 50)
+    const response = await h.request('/api/auth/login', { method: 'POST', json: { username: 'someone', password: TEST_PASSWORD }, headers: headers as Record<string, string> })
+    expect(response.status).toBe(status)
+    if (status === 429) expect(response.headers.get('Retry-After')).toBe('900')
+  })
+
+  it('applies signup limits to forwarded clients instead of shared egress IPs', async () => {
+    await h.sql('INSERT INTO auth_attempts (key, window_start, count) VALUES (?, ?, ?)', 'signup-ip:203.0.113.70', TEST_NOW, 10)
+    const limited = await h.request('/api/auth/signup', { method: 'POST', json: { username: 'x', password: TEST_PASSWORD }, headers: { 'cf-connecting-ip': '203.0.113.71', 'x-forwarded-for': '203.0.113.70, 203.0.113.72' } })
+    expect(limited.status).toBe(429)
+    expect(limited.headers.get('Retry-After')).toBe('3600')
+    const other = await h.request('/api/auth/signup', { method: 'POST', json: { username: 'x', password: TEST_PASSWORD }, headers: { 'cf-connecting-ip': '203.0.113.70', 'x-forwarded-for': '203.0.113.73, 203.0.113.72' } })
+    expect(other.status).toBe(400)
+    expect(await other.json()).toEqual({ error: 'invalid_username' })
   })
 
   it('limits signups to ten attempts per IP each hour', async () => {

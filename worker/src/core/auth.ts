@@ -65,8 +65,9 @@ async function createSession(env: Env, userId: string, now: number): Promise<str
 }
 
 function clientIp(request: Request): string {
-  return request.headers.get('cf-connecting-ip')?.trim()
-    || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+  // Direct workers.dev callers can spoof x-forwarded-for to bypass IP limits; username limits and PBKDF2 still apply.
+  return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    || request.headers.get('cf-connecting-ip')?.trim() || 'unknown'
 }
 
 function normalizeUsername(value: unknown): string {

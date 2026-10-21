@@ -70,9 +70,12 @@ export default {
   },
 
   scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): void {
-    ctx.waitUntil((async () => {
-      await purgeExpiredTrash(env, controller.scheduledTime)
-      await runPushScheduler(env, controller.scheduledTime)
-    })())
+    ctx.waitUntil(Promise.allSettled([
+      Promise.resolve().then(() => purgeExpiredTrash(env, controller.scheduledTime)),
+      Promise.resolve().then(() => runPushScheduler(env, controller.scheduledTime)),
+    ]).then(([trash, push]) => {
+      if (trash.status === 'rejected') console.error('Trash purge failed')
+      if (push.status === 'rejected') console.error('Push scheduler failed')
+    }))
   },
 }
