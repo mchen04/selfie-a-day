@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises'
 import { relative, resolve } from 'node:path'
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib'
 import { createHash } from 'node:crypto'
+import { parse } from 'acorn'
+import { JSDOM } from 'jsdom'
 import { filesUnder } from './common.mjs'
 
 export function compressed(bytes, encoding, quality = 11) {
@@ -11,9 +13,37 @@ export function compressed(bytes, encoding, quality = 11) {
 }
 
 export function references(source, type) {
-  if (type === 'html') return [...source.matchAll(/<(?:script|link|img|source)\b[^>]*\b(?:src|href)\s*=\s*["']([^"']+)["'][^>]*>/gi)].map((m) => m[1])
+  if (type === 'html') {
+    const dom = new JSDOM(source)
+    const refs = [...dom.window.document.querySelectorAll('script[src], link[href], img[src], source[src]')]
+      .map((element) => element.getAttribute(element.localName === 'link' ? 'href' : 'src'))
+    dom.window.close()
+    return refs
+  }
   if (type === 'css') return [...source.matchAll(/(?:url\(\s*|@import\s*)["']?([^"'\s)]+)["']?\s*\)?/g)].map((m) => m[1])
-  return [...source.matchAll(/(?:\bfrom\s*|\bimport\s*)(["'])([^"']+)\1/g)].map((m) => m[2])
+  const nodes = [parse(source, { ecmaVersion: 'latest', sourceType: 'module' })]
+  const refs = []
+  while (nodes.length) {
+    const node = nodes.pop()
+    if (['ImportDeclaration', 'ExportNamedDeclaration', 'ExportAllDeclaration'].includes(node.type) && node.source)
+      refs.push(node.source.value)
+    if (node.type === 'NewExpression' && node.callee.type === 'Identifier' && node.callee.name === 'URL'
+      && isImportMetaURL(node.arguments[1])) {
+      const specifier = node.arguments[0]
+      if (specifier?.type === 'Literal' && typeof specifier.value === 'string') refs.push(specifier.value)
+      if (specifier?.type === 'TemplateLiteral' && !specifier.expressions.length) refs.push(specifier.quasis[0].value.cooked)
+    }
+    for (const value of Object.values(node)) {
+      if (value?.type) nodes.push(value)
+      else if (Array.isArray(value)) for (const child of value) if (child?.type) nodes.push(child)
+    }
+  }
+  return [...new Set(refs)]
+}
+
+function isImportMetaURL(node) {
+  return node?.type === 'MemberExpression' && (node.computed ? node.property.value : node.property.name) === 'url'
+    && node.object.type === 'MetaProperty' && node.object.meta.name === 'import' && node.object.property.name === 'meta'
 }
 
 export async function inventory(dist) {

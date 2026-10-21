@@ -44,6 +44,9 @@ No production account, key, image, or session is needed.
 
 The original build needs no API, account, or sign-in screen:
 
+Its first visit shows onboarding. Cold measures the interactive primary button without advancing it.
+Warm, offline, and capture scenarios tap that button during untimed setup.
+
 ```sh
 node scripts/perf/lab.mjs --target "original=$PERF_ORIGINAL_DIST" --encoding br-dynamic --runs 9 --out /tmp/selfie-perf-original
 ```
@@ -56,6 +59,21 @@ node scripts/perf/lab.mjs --target "candidate=$PERF_CANDIDATE_DIST,http://127.0.
 
 Each command writes `lab.json`. These reports share the same settings and schema.
 Separate commands show each build's behavior. A keep decision requires the interleaved command below.
+
+## Readiness smoke on the mini
+
+Start the local Worker, then run one sample of each relevant path against both frozen builds:
+
+```sh
+node scripts/perf/lab.mjs --target "original=$PERF_ORIGINAL_DIST" --target "candidate=$PERF_CANDIDATE_DIST,http://127.0.0.1:8787" --encoding br-dynamic --runs 1 --scenario cold --scenario cold-signed-in --scenario warm --scenario offline-warm --scenario capture --out /tmp/selfie-perf-readiness-smoke
+node scripts/perf/summarize.mjs /tmp/selfie-perf-readiness-smoke
+```
+
+Original cold must report `evidence.firstScreen: "onboarding"`. Candidate cold must report `"account"`.
+Warm and offline samples must report `"capture"`. Candidate signed-in cold must also report `"capture"`.
+Original warm, offline, and capture evidence must show `completedOnboarding: true`.
+Original signed-in cold skips because it has no account API. Every other sample must succeed.
+This smoke checks readiness and capture completion. One sample does not establish a performance gain.
 
 ## Frozen A/B comparison
 
@@ -76,6 +94,10 @@ Reports include machine details, Node and browser versions, fixture and image ha
 The harness checks that build files remain unchanged after the run.
 It saves partial results after every sample. Any failed sample sets a nonzero exit code.
 Skips remain visible and never become zero-valued measurements.
+If the first two samples of a target/scenario return the same error, remaining samples record that error without running.
+Those rows have `evidence.executed: false` and identify the two failed rounds. Other targets and scenarios continue.
+Every row records `os.loadavg()` before and after the sample, including untimed setup.
+Load arrays contain the 1-, 5-, and 15-minute averages. High load never removes samples.
 
 Optional lab flags:
 
@@ -102,11 +124,18 @@ The optional served check only sends anonymous GET requests for initial static a
 It sends separate `Accept-Encoding: br` and `gzip` requests. Node's raw HTTP client counts compressed response bodies without automatic decompression.
 Use a deployment that matches the measured file set. HTTP failures remain in the report and set a nonzero exit code.
 The report records the actual response encoding, body length, content length, status, and `Vary` header.
+Top-level `servedAssets` lists every asset/encoding response. Existing `files[].served` rows retain the same data.
+Top-level `servedTotals` sums initial-asset body bytes separately for requested `br` and `gzip` delivery.
+Totals also show response encoding counts, HTTP failures, and missing content lengths.
+A missing content-length header stays null; measured body bytes still count.
+Compare the main-script rows when checking the earlier 92,421-byte Brotli and 90,548-byte gzip measurements.
 
 `sizes.mjs` reports every shipped file, including source maps and images.
 Raw, gzip level 9, and Brotli quality 11 totals are separate theoretical body sizes.
 The initial set starts at `index.html`, follows its script/link/image references, then follows static JavaScript imports and CSS URLs.
 This includes modulepreloads. Dynamic imports do not join the initial set.
+The HTML parser reads actual attributes. The installed Acorn parser follows import/export declarations and literal `new URL(..., import.meta.url)` assets.
+JavaScript strings, comments, regular expressions, and dynamic imports cannot create false static references.
 Lazy chunks are remaining JavaScript/CSS files, excluding service worker and Workbox files.
 The precache set comes from built service worker URL/revision records.
 These sets can overlap. Do not add their totals together.
@@ -142,11 +171,11 @@ The browser blocks external HTTP traffic through an unused loopback proxy.
 
 | Scenario | Start and finish | Data |
 | --- | --- | --- |
-| `cold` | New navigation to interactive account screen or capture-ready | Empty context; service workers blocked |
+| `cold` | New navigation to interactive onboarding, interactive account screen, or capture-ready | Empty context; service workers blocked |
 | `cold-signed-in` | New navigation to capture-ready | Session cookie only; no local app storage; service workers blocked |
-| `warm` | Second navigation to capture-ready | First visit installs and activates the service worker |
+| `warm` | Second navigation to capture-ready | First visit completes onboarding and activates the service worker |
 | `offline-warm` | New offline navigation to capture-ready | Online visits warm the app; HTTP cache disabled; SW stays active |
-| `capture` | Shutter click to saved toast and completed upload | Empty account, or original local-only storage |
+| `capture` | Shutter click to saved toast and completed upload | Empty account, or original storage after untimed onboarding |
 | `timeline-60` | Timeline click to decoded thumbnails in the viewport | 60 fixed synthetic photos; service workers blocked |
 | `sync-60`, `sync-365` | Full snapshot fetch to complete response body | 60 or 365 fixed photos; CDP throttle applies |
 
@@ -210,7 +239,8 @@ Only interleaved gains strictly above that threshold earn `keep: true`.
 The command rejects mixed lab settings, machines, versions, fixtures, or build modes.
 It also rejects one target name that refers to different builds.
 Read skips and failures alongside the tables. A missing feature supplies no comparison metric.
-Cold account and capture screens perform different work; inspect the recorded first-screen mode before comparing them.
+Cold onboarding, account, and capture screens perform different work; inspect the recorded first-screen mode before comparing them.
+Summary JSON includes each row's `loadAverages`. Markdown prints a per-sample load table and marks rows that did not execute.
 
 ## Light checks on a development Mac
 
@@ -221,4 +251,5 @@ node scripts/perf/lab.mjs --self-check
 ```
 
 The self-check validates arguments, rejects bad inputs, checks sample schema, and exercises noise decisions without launching browsers.
+It also checks minified references, delivery totals, readiness modes, onboarding clicks, repeated-error limits, and load reporting.
 Run builds, browser scenarios, Lighthouse, and actual measurements only on the mini.

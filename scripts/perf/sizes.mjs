@@ -22,6 +22,21 @@ export function wireAsset(url, encoding) {
   })
 }
 
+export function servedDelivery(files) {
+  const servedAssets = files.flatMap((file) => (file.served ?? []).map((entry) => ({ path: file.path, ...entry })))
+  const servedTotals = ['br', 'gzip'].map((requestedEncoding) => {
+    const assets = servedAssets.filter((asset) => asset.requestedEncoding === requestedEncoding)
+    const missingContentLengths = assets.filter((asset) => asset.contentLength === null).length
+    return { requestedEncoding, assets: assets.length, successfulAssets: assets.filter((asset) => asset.status === 200).length,
+      failedAssets: assets.filter((asset) => asset.status !== 200).length,
+      bodyBytes: assets.reduce((sum, asset) => sum + asset.bodyBytes, 0),
+      contentLengthBytes: missingContentLengths ? null : assets.reduce((sum, asset) => sum + Number(asset.contentLength), 0),
+      missingContentLengths, contentEncodings: Object.fromEntries([...new Set(assets.map((asset) => asset.contentEncoding))]
+        .map((encoding) => [encoding, assets.filter((asset) => asset.contentEncoding === encoding).length])) }
+  })
+  return { servedAssets, servedTotals: servedAssets.length ? servedTotals : [] }
+}
+
 export async function main() {
   const { values, positionals } = cli({ json: { type: 'string' }, served: { type: 'string' } })
   if (positionals.length !== 1) throw new Error('Usage: sizes.mjs <dist> [--json out] [--served <origin>]')
@@ -48,7 +63,7 @@ export async function main() {
   }
   const result = envelope('sizes', { dist, build: await buildIdentity(dist), files, totals,
     externalReferences: graph.external, missingReferences: graph.missing, missingPrecache: graph.missingPrecache,
-    servedOrigin: origin?.origin ?? null })
+    servedOrigin: origin?.origin ?? null, ...servedDelivery(files) })
   if (values.json) await jsonFile(values.json, result)
   else process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
   if (graph.missing.length || graph.missingPrecache.length || files.some((file) => file.served?.some((entry) => entry.status !== 200)))

@@ -2,12 +2,14 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFile, mkdir, access } from 'node:fs/promises'
 import { resolve, relative, isAbsolute } from 'node:path'
+import { loadavg } from 'node:os'
 import { cli, envelope, fail, isMain, jsonFile, machine, positiveInt, targetSpec, validateSample,
   SETTINGS, SCENARIOS, stats, buildIdentity, VERSION, validateLabOutput } from './common.mjs'
 import { calibrate } from './assets.mjs'
 import { ENCODINGS, staticHandler, listen } from './serve.mjs'
-import { CAMERA_FIXTURE, launchBrowser, newPage, ready, offlineReady, credentialsState, syntheticImage } from './browser.mjs'
+import { CAMERA_FIXTURE, launchBrowser, newPage, ready, offlineReady, credentialsState, syntheticImage, completeOnboarding } from './browser.mjs'
 import { summarize } from './summarize.mjs'
+import { regressionChecks } from './regressions.mjs'
 
 export function argumentsFor(args) {
   const { values, positionals } = cli({ target: { type: 'string', multiple: true }, runs: { type: 'string', default: '9' },
@@ -61,7 +63,8 @@ async function navigationMetrics(session, result) {
 async function capture(session, origin, cloud) {
   const { page } = session
   await page.goto(origin, { waitUntil: 'domcontentloaded' })
-  await ready(page)
+  const preparation = await completeOnboarding(page)
+  if (preparation.mode === 'account') throw new Error('Capture needs a local API and synthetic session')
   session.reset()
   const uploadPromise = cloud ? page.waitForResponse((response) => new URL(response.url()).pathname.match(/^\/api\/photos\/[0-9a-z]{20}$/)
     && response.request().method() === 'PUT') : null
@@ -80,7 +83,8 @@ async function capture(session, origin, cloud) {
     metrics.uploadRequestBytes = metric(uploadBytes.requestBodySize, 'bytes')
     metrics.uploadResponseBytes = metric(uploadBytes.responseBodySize, 'bytes')
   }
-  return { status: 'ok', metrics, evidence: { upload: cloud ? 'finished' : 'skipped: local-only build has no upload API', network } }
+  return { status: 'ok', metrics, evidence: { completedOnboarding: !!preparation.completedOnboarding,
+    upload: cloud ? 'finished' : 'skipped: local-only build has no upload API', network } }
 }
 
 async function timeline(session, origin) {
@@ -147,9 +151,11 @@ async function sample(browser, target, scenario, origin, image) {
     if (scenario === 'capture') return await capture(session, origin, cloud)
     if (scenario === 'timeline-60') return await timeline(session, origin)
     if (scenario.startsWith('sync-')) return await sync(session, origin, seeded)
+    let completedOnboarding = false
     if (warm) {
       await session.page.goto(origin, { waitUntil: 'domcontentloaded' })
-      const first = await ready(session.page, !cloud)
+      const first = await completeOnboarding(session.page)
+      completedOnboarding = !!first.completedOnboarding
       if (first.mode === 'account') return skip('Capture needs a local API and synthetic session')
       await offlineReady(session.page)
       if (scenario === 'offline-warm') {
@@ -164,10 +170,27 @@ async function sample(browser, target, scenario, origin, image) {
     await session.page.goto(origin, { waitUntil: 'domcontentloaded' })
     const result = await ready(session.page, scenario === 'cold')
     const row = await navigationMetrics(session, result)
+    if (warm) row.evidence.completedOnboarding = completedOnboarding
     if (warm && !await session.page.evaluate(() => !!navigator.serviceWorker.controller)) throw new Error('Warm page is not service worker controlled')
     if (scenario === 'offline-warm' && row.evidence.network.failedCritical.length) throw new Error('Offline reload has failed critical requests')
     return row
   } finally { await session.context.close() }
+}
+
+export async function guardedSample(history, { target, scenario, round }, run) {
+  const key = JSON.stringify([target, scenario])
+  const first = history.get(key) ?? []
+  const suppressed = first.length === 2 && first.every((sample) => sample.status === 'error') && first[0].reason === first[1].reason
+  const before = loadavg()
+  let result
+  if (suppressed) result = { status: 'error', reason: first[0].reason, metrics: {} }
+  else {
+    try { result = await run() }
+    catch (error) { result = { status: 'error', reason: error.message, metrics: {} } }
+    if (first.length < 2) history.set(key, [...first, { status: result.status, reason: result.reason, round }])
+  }
+  return { ...result, evidence: { ...result.evidence, executed: !suppressed, loadavg: { before, after: loadavg() },
+    ...(suppressed ? { failFast: { failedRounds: first.map((sample) => sample.round), reason: first[0].reason } } : {}) } }
 }
 
 export async function selfCheck() {
@@ -198,6 +221,7 @@ export async function selfCheck() {
   assert.equal(pair.tables[0].comparisons[0].keep, false); checks++
   const gain = summarize([envelope('lab', { samples: [row, { ...row, target: 'candidate', metrics: { readyMs: metric(40, 'ms') } }] })])
   assert.equal(gain.tables[0].comparisons[0].keep, true); checks++
+  checks += await regressionChecks(guardedSample)
   return envelope('self-check', { status: 'pass', checks, browsersLaunched: 0 })
 }
 
@@ -233,15 +257,15 @@ export async function main() {
     const image = await syntheticImage(browser)
     output.syntheticImage = { sha256: createHash('sha256').update(image).digest('hex'), bytes: image.length, width: 120, height: 160 }
     await jsonFile(outputPath, validateLabOutput(output))
+    const history = new Map()
     for (const scenario of options.scenarios) for (let round = 1; round <= options.runs; round++) for (const target of targets) {
       active = target
-      let result
-      try { result = await sample(browser, target, scenario, server.origin, image) }
-      catch (error) { result = { status: 'error', reason: error.message, metrics: {} }; process.exitCode = 1 }
+      const result = await guardedSample(history, { target: target.name, scenario, round }, () => sample(browser, target, scenario, server.origin, image))
+      if (result.status === 'error') process.exitCode = 1
       const row = validateSample({ target: target.name, scenario, round, order: output.samples.length + 1, ...result })
       output.samples.push(row)
       await jsonFile(outputPath, validateLabOutput(output))
-      process.stdout.write(`${target.name} ${scenario} ${round}/${options.runs}: ${row.status}${row.reason ? ` (${row.reason})` : ''}\n`)
+      process.stdout.write(`${target.name} ${scenario} ${round}/${options.runs}: ${row.status}${row.evidence.executed ? '' : ' (not run: repeated failure)'}${row.reason ? ` (${row.reason})` : ''}\n`)
     }
     for (const target of targets) {
       if ((await buildIdentity(target.dist)).sha256 !== target.build.sha256) throw new Error(`Build changed during measurement: ${target.name}`)

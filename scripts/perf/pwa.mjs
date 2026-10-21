@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { cli, envelope, fail, isMain, jsonFile, localURL, machine, SETTINGS } from './common.mjs'
-import { launchBrowser, newPage, ready, offlineReady, credentialsState } from './browser.mjs'
+import { launchBrowser, newPage, ready, offlineReady, credentialsState, completeOnboarding } from './browser.mjs'
 
 export async function main() {
   const { values, positionals } = cli({ url: { type: 'string' }, api: { type: 'string' }, out: { type: 'string' } })
@@ -22,7 +22,7 @@ export async function main() {
     session = await newPage(browser, { serviceWorkers: 'allow', storageState })
     const { page, cdp, context } = session
     await page.goto(url.href, { waitUntil: 'domcontentloaded' })
-    const first = await ready(page, true)
+    const first = await completeOnboarding(page)
     let manifest
     await check('manifest fields', async () => {
       const href = await page.locator('link[rel="manifest"]').getAttribute('href')

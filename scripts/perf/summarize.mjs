@@ -50,7 +50,10 @@ export function summarize(documents, usefulGain = USEFUL_GAIN) {
   }
   const outcomes = documents.flatMap((document, source) => (document.samples ?? []).filter((sample) => sample.status !== 'ok')
     .map(({ target, scenario, round, status, reason }) => ({ source, target, scenario, round, status, reason })))
-  return { tables, outcomes }
+  const loadAverages = documents.flatMap((document, source) => (document.samples ?? []).filter((sample) => sample.evidence?.loadavg)
+    .map((sample) => ({ source, target: sample.target, scenario: sample.scenario, round: sample.round,
+      executed: sample.evidence.executed !== false, ...sample.evidence.loadavg })))
+  return { tables, outcomes, loadAverages }
 }
 
 const number = (value) => Number.isInteger(value) ? String(value) : value.toFixed(2)
@@ -71,6 +74,12 @@ export function markdown(result) {
   if (result.outcomes.length) {
     lines.push('## Skips and failures', '', '| Target | Scenario | Round | Status | Reason |', '| --- | --- | ---: | --- | --- |')
     for (const row of result.outcomes) lines.push(`| ${escape(row.target)} | ${escape(row.scenario)} | ${row.round} | ${row.status} | ${escape(row.reason)} |`)
+  }
+  if (result.loadAverages?.length) {
+    lines.push('', '## Machine load per sample', '',
+      'Values show OS load averages over 1, 5, and 15 minutes before and after each sample. High load never removes samples.', '',
+      '| Target | Scenario | Round | Executed | Before: 1 / 5 / 15 min | After: 1 / 5 / 15 min |', '| --- | --- | ---: | --- | ---: | ---: |')
+    for (const row of result.loadAverages) lines.push(`| ${escape(row.target)} | ${escape(row.scenario)} | ${row.round} | ${row.executed ? 'yes' : 'no'} | ${row.before.map(number).join(' / ')} | ${row.after.map(number).join(' / ')} |`)
   }
   return `${lines.join('\n')}\n`
 }

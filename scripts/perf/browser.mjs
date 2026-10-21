@@ -71,33 +71,48 @@ export async function newPage(browser, { serviceWorkers = 'block', storageState 
   }
 }
 
-export async function ready(page, allowAccount = false) {
-  const handle = await page.waitForFunction((accountAllowed) => {
-    const account = document.querySelector('[data-testid="account-screen"]')
-    if (accountAllowed && account && account.getBoundingClientRect().height > 0) {
-      const inputs = [...account.querySelectorAll('input')]
-      const button = account.querySelector('[data-testid="account-submit"]')
-      if (inputs.length >= 2 && inputs.every((input) => !input.disabled) && button && !button.disabled)
-        return { mode: 'account', readyMs: performance.now() }
-    }
-    const shutter = document.querySelector('[data-testid="shutter"]')
-    const video = document.querySelector('[data-testid="capture-video"]')
-    if (!shutter || shutter.disabled || shutter.dataset.mode !== 'capture' || !video || !video.videoWidth || video.readyState < 2) return false
-    const canvas = document.createElement('canvas')
-    canvas.width = 32; canvas.height = 32
-    const ctx = canvas.getContext('2d', { willReadFrequently: true })
-    ctx.drawImage(video, 0, 0, 32, 32)
-    const { data } = ctx.getImageData(0, 0, 32, 32)
-    let min = 255; let max = 0
-    for (let i = 0; i < data.length; i += 4) {
-      const value = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
-      min = Math.min(min, value); max = Math.max(max, value)
-    }
-    return max - min > 30 ? { mode: 'capture', readyMs: performance.now() } : false
-  }, allowAccount)
+export function firstScreenReady(allowFirstScreen = false) {
+  const onboarding = document.querySelector('[data-testid="onboarding-screen"]')
+  if (allowFirstScreen && onboarding && onboarding.getBoundingClientRect().height > 0) {
+    const button = onboarding.querySelector('[data-testid="onboarding-start"]')
+    if (button && !button.disabled && button.getBoundingClientRect().height > 0)
+      return { mode: 'onboarding', readyMs: performance.now() }
+  }
+  const account = document.querySelector('[data-testid="account-screen"]')
+  if (allowFirstScreen && account && account.getBoundingClientRect().height > 0) {
+    const inputs = [...account.querySelectorAll('input')]
+    const button = account.querySelector('[data-testid="account-submit"]')
+    if (inputs.length >= 2 && inputs.every((input) => !input.disabled) && button && !button.disabled)
+      return { mode: 'account', readyMs: performance.now() }
+  }
+  const shutter = document.querySelector('[data-testid="shutter"]')
+  const video = document.querySelector('[data-testid="capture-video"]')
+  if (!shutter || shutter.disabled || shutter.dataset.mode !== 'capture' || !video || !video.videoWidth || video.readyState < 2) return false
+  const canvas = document.createElement('canvas')
+  canvas.width = 32; canvas.height = 32
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  ctx.drawImage(video, 0, 0, 32, 32)
+  const { data } = ctx.getImageData(0, 0, 32, 32)
+  let min = 255; let max = 0
+  for (let i = 0; i < data.length; i += 4) {
+    const value = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
+    min = Math.min(min, value); max = Math.max(max, value)
+  }
+  return max - min > 30 ? { mode: 'capture', readyMs: performance.now() } : false
+}
+
+export async function ready(page, allowFirstScreen = false) {
+  const handle = await page.waitForFunction(firstScreenReady, allowFirstScreen)
   const result = await handle.jsonValue()
   await handle.dispose()
   return result
+}
+
+export async function completeOnboarding(page) {
+  const first = await ready(page, true)
+  if (first.mode !== 'onboarding') return first
+  await page.getByTestId('onboarding-start').click()
+  return { ...await ready(page), completedOnboarding: true }
 }
 
 export async function offlineReady(page) {
