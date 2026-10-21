@@ -3,7 +3,7 @@ import { api, ApiError, onSignedOut, type User } from '../api/client.ts'
 import type { CaptureResult } from '../camera/capture.ts'
 import { defaultAlbum, makeAlbum } from '../core/albums.ts'
 import { DEFAULT_SETTINGS, type Album, type Settings } from '../core/types.ts'
-import { cacheUser, cachedUser, clearUserData } from '../storage/local.ts'
+import { cacheUser, cachedUser, clearUserData, forgetCachedUser } from '../storage/local.ts'
 import { loadSettings, saveSettings } from '../storage/settings.ts'
 import { SyncEngine, visiblePhotos, type SyncState } from '../sync/engine.ts'
 import { AppContext, type AppContextValue } from './store-context.ts'
@@ -19,7 +19,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const settingsRef = useRef(DEFAULT_SETTINGS)
   const clearing = useRef<Promise<void> | null>(null)
 
-  const clearSession = useCallback(async () => {
+  const clearSession = useCallback(async (discard = false) => {
     if (clearing.current) return clearing.current
     const current = engine.current
     engine.current = null
@@ -32,8 +32,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const task = (async () => {
       if (current) {
         await current.stop()
-        await clearUserData(current.user.id)
+        if (discard) await clearUserData(current.user.id)
       }
+      await forgetCachedUser()
       for (const key of Object.keys(localStorage)) if (key.startsWith('sad.camera.')) localStorage.removeItem(key)
     })()
     clearing.current = task
@@ -46,7 +47,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     await clearing.current
     if (engine.current?.user.id === nextUser.id) return
     const old = engine.current
-    if (old) { await old.stop(); await clearUserData(old.user.id) }
+    if (old) await old.stop()
     const next = new SyncEngine(nextUser, setSync)
     engine.current = next
     await cacheUser(nextUser)
@@ -111,8 +112,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [currentEngine])
 
   const savePhoto = useCallback(async (result: CaptureResult) => {
-    const seconds = 'timerSeconds' in result && typeof result.timerSeconds === 'number' ? result.timerSeconds : 0
-    await currentEngine().enqueue({ ...result.meta, timerSeconds: [0, 3, 5, 10].includes(seconds) ? seconds : 0 }, result.master, result.thumb)
+    await currentEngine().enqueue(result.meta, result.master, result.thumb)
   }, [currentEngine])
 
   const logout = useCallback(async () => {
@@ -126,7 +126,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     }
     await api.logout()
-    if (engine.current === current) await clearSession()
+    if (engine.current === current) await clearSession(true)
   }, [clearSession, currentEngine])
 
   const actions = useMemo<AppContextValue['actions']>(() => ({

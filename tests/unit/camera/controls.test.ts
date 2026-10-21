@@ -83,11 +83,13 @@ beforeEach(async () => {
   Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
   app = {
     status: 'ready', storageError: null, metas: [], allMetas: [], trashedMetas: [], undoTrash: null,
+    user: { id: 'synthetic-camera-user', username: 'camera-test' }, pendingIds: [], syncing: false, syncError: null,
     albums: [album()], activeAlbum: album(), settings: { ...DEFAULT_SETTINGS },
     actions: {
       savePhoto: mocks.savePhoto, trashPhoto: vi.fn(), restorePhoto: vi.fn(), deletePhotoPermanently: vi.fn(),
       emptyTrash: vi.fn(), dismissUndo: vi.fn(), selectAlbum: vi.fn(), createAlbum: vi.fn(),
       updateAlbum: vi.fn(), updateSettings: vi.fn(), reload: vi.fn(),
+      signIn: vi.fn(), logout: vi.fn(), retrySync: vi.fn(),
     },
   }
   camera = {

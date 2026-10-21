@@ -5,7 +5,8 @@ export default defineConfig({
   test: {
     cache: false,
     environment: 'node',
-    include: ['worker/test/core/**/*.test.ts'],
+    include: ['worker/test/{core,push}/**/*.test.ts'],
+    restoreMocks: true,
     fileParallelism: false,
     maxWorkers: 1,
     testTimeout: 20000,

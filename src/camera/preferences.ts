@@ -9,7 +9,7 @@ export interface TimerPreference {
 
 export interface LatestTimerPhoto {
   capturedAt: number
-  timerSeconds?: number
+  timerSeconds: number
 }
 
 export function timerSeconds(value: unknown): TimerSeconds {

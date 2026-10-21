@@ -1,4 +1,5 @@
 import type { PushEnv } from './types'
+import { HttpError, readJson } from '../core/http'
 import { isRecord, validEndpoint, validKeys, validTimeZone } from './validation'
 
 export type { PushEnv } from './types'
@@ -36,13 +37,13 @@ export async function handlePush(request: Request, env: PushEnv, ctx: { userId: 
   }
   const subscriptionWrite = path === '/api/push/subscription' && ['PUT', 'DELETE'].includes(request.method)
   if (!subscriptionWrite && !(albumMatch && request.method === 'PUT')) return json({ error: 'method_not_allowed' }, 405)
-  let body: unknown
+  let body: Record<string, unknown>
   try {
-    body = await request.json()
-  } catch {
-    return json({ error: 'invalid_json' }, 400)
+    body = await readJson(request)
+  } catch (error) {
+    if (error instanceof HttpError) return json({ error: error.code }, error.status)
+    throw error
   }
-  if (!isRecord(body)) return json({ error: 'invalid_json' }, 400)
   if (subscriptionWrite) {
     if (request.method === 'DELETE') {
       if (typeof body.endpoint !== 'string') return json({ error: 'invalid_endpoint' }, 400)

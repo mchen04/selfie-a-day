@@ -17,7 +17,7 @@
     "verify:full": "npm run verify && npm run test:e2e",
     "fixtures": "node scripts/make-fixtures.mjs",
     "icons": "node scripts/make-icons.mjs",
-    "dev:api": "wrangler d1 migrations apply DB --local --env local -c worker/wrangler.jsonc && wrangler dev -c worker/wrangler.jsonc --env local --port 8787",
+    "dev:api": "node worker/scripts/local-api.mjs",
     "test:worker": "vitest run --config worker/vitest.config.ts"
   },
   "dependencies": {

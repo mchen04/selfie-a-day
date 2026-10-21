@@ -2,7 +2,7 @@ import type { Album, PhotoMeta } from '../core/types.ts'
 
 export interface User { id: string; username: string }
 export type AlbumDTO = Omit<Album, 'schema'>
-export type PhotoDTO = Omit<PhotoMeta, 'schema' | 'timerSeconds'> & { timerSeconds: number }
+export type PhotoDTO = Omit<PhotoMeta, 'schema'>
 export interface SyncResponse {
   albums: AlbumDTO[]
   photos: PhotoDTO[]
@@ -107,7 +107,7 @@ export async function uploadPhoto(meta: PhotoMeta, master: Blob, thumb: Blob): P
     albumId: meta.albumId, dayKey: meta.dayKey, capturedAt: meta.capturedAt,
     timeZone: meta.timeZone, tzOffsetMinutes: meta.tzOffsetMinutes, width: meta.width,
     height: meta.height, mime: meta.mime, mirrored: meta.mirrored, source: meta.source,
-    timerSeconds: meta.timerSeconds ?? 0,
+    timerSeconds: meta.timerSeconds,
   }))
   form.set('master', master, 'master')
   form.set('thumb', thumb, 'thumb')

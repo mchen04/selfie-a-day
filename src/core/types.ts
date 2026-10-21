@@ -35,7 +35,7 @@ export interface PhotoMeta {
    * mirror setting change without corrupting older photos' alignment.
    */
   mirrored: boolean
-  timerSeconds?: number
+  timerSeconds: number
   source: CaptureSource
   masterBytes: number
   thumbBytes: number

@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module'
+import type { Response as WorkerResponse } from '@cloudflare/workers-types'
 import { readFile, readdir } from 'node:fs/promises'
 import { createECDH, randomBytes } from 'node:crypto'
 import type { Miniflare as MiniflareInstance } from 'miniflare'
@@ -41,7 +42,7 @@ export class Harness {
     this.env = env
   }
 
-  async request(path: string, options: RequestOptions = {}): Promise<Response> {
+  async request(path: string, options: RequestOptions = {}): Promise<WorkerResponse> {
     const method = options.method ?? 'GET'
     const headers: Record<string, string> = { 'X-Test-Now': String(options.now ?? TEST_NOW), 'cf-connecting-ip': options.ip ?? '192.0.2.1' }
     if (options.csrf !== false && method !== 'GET' && method !== 'HEAD') {
@@ -55,12 +56,12 @@ export class Harness {
       headers['Content-Type'] = 'application/json'
     }
     Object.assign(headers, options.headers)
-    const encoded = new Request(`https://api.example${path}`, { method, headers, body })
+    const encoded = new Request(`https://api.example${path}`, { method, headers, ...(body === undefined ? {} : { body }) })
     const response = await this.mf.dispatchFetch(encoded.url, {
       method, headers: Object.fromEntries(encoded.headers),
-      body: body === undefined ? undefined : new Uint8Array(await encoded.arrayBuffer()),
+      ...(body === undefined ? {} : { body: new Uint8Array(await encoded.arrayBuffer()) }),
     })
-    return response as unknown as Response
+    return response as unknown as WorkerResponse
   }
 
   async user(username = `u-${randomBytes(8).toString('hex')}`): Promise<TestUser> {
@@ -73,7 +74,7 @@ export class Harness {
     return { ...data.user, cookie }
   }
 
-  upload(user: TestUser, id: string, options: { meta?: Record<string, unknown>; master?: Uint8Array<ArrayBuffer>; thumb?: Uint8Array<ArrayBuffer>; masterMime?: string; thumbMime?: string; now?: number } = {}): Promise<Response> {
+  upload(user: TestUser, id: string, options: { meta?: Record<string, unknown>; master?: Uint8Array<ArrayBuffer>; thumb?: Uint8Array<ArrayBuffer>; masterMime?: string; thumbMime?: string; now?: number } = {}): Promise<WorkerResponse> {
     const meta = {
       albumId: 'selfies', dayKey: '2026-10-21', capturedAt: TEST_NOW, timeZone: 'America/Los_Angeles',
       tzOffsetMinutes: 420, width: 100, height: 100, mime: 'image/jpeg', mirrored: true, source: 'camera', timerSeconds: 3,
@@ -83,7 +84,7 @@ export class Harness {
     form.set('meta', JSON.stringify(meta))
     form.set('master', new Blob([options.master ?? JPEG], { type: options.masterMime ?? 'image/jpeg' }), 'master.jpg')
     form.set('thumb', new Blob([options.thumb ?? JPEG], { type: options.thumbMime ?? 'image/jpeg' }), 'thumb.jpg')
-    return this.request(`/api/photos/${id}`, { method: 'PUT', cookie: user.cookie, body: form, now: options.now })
+    return this.request(`/api/photos/${id}`, { method: 'PUT', cookie: user.cookie, body: form, ...(options.now === undefined ? {} : { now: options.now }) })
   }
 
   async sql(sql: string, ...bindings: unknown[]): Promise<void> {

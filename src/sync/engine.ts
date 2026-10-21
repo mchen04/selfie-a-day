@@ -15,6 +15,7 @@ export class SyncEngine {
   private writes = new Set<Promise<void>>()
   private retry: ReturnType<typeof setTimeout> | undefined
   private refreshPending = false
+  private refreshRequested = false
   private readonly changed: (state: SyncState) => void
 
   constructor(user: User, changed: (state: SyncState) => void) {
@@ -49,17 +50,22 @@ export class SyncEngine {
   }
 
   refresh(): Promise<void> {
-    if (this.refreshPending || !this.active) return this.chain.then(() => undefined)
+    if (!this.active) return this.chain.then(() => undefined)
+    this.refreshRequested = true
+    if (this.refreshPending) return this.chain.then(() => undefined)
     this.refreshPending = true
     return this.run(async () => {
       this.emit({ syncing: true, error: null })
       try {
-        await requireUser(this.user.id)
-        if (!this.active) return
-        await this.pull()
-        await this.flush()
-        await this.pull()
-        await this.reconcileGhosts()
+        do {
+          this.refreshRequested = false
+          await requireUser(this.user.id)
+          if (!this.active) return
+          await this.pull()
+          await this.flush()
+          await this.pull()
+          await this.reconcileGhosts()
+        } while (this.active && this.refreshRequested)
       } catch (error) {
         this.emit({ error: error instanceof ApiError ? error.message : 'Offline. New photos wait here until you reconnect.' })
       } finally {
@@ -76,9 +82,24 @@ export class SyncEngine {
     await writeSnapshot(this.user.id, { albums, photos, cursor })
   }
 
+  private async savePhotos(photos: PhotoMeta[]) {
+    if (!this.active) return
+    await writeSnapshot(this.user.id, { albums: this.state.albums, photos, cursor: this.state.cursor })
+    this.emit({ photos })
+  }
+
   private async pull() {
-    const full = !this.state.cursor
-    const delta = await api.sync(full ? undefined : this.state.cursor)
+    let full = !this.state.cursor
+    let delta
+    try { delta = await api.sync(full ? undefined : this.state.cursor) }
+    catch (error) {
+      if (full || !(error instanceof ApiError) || error.status !== 400 || error.code !== 'invalid_cursor') throw error
+      if (!this.active) return
+      this.emit({ cursor: '' })
+      await this.persist()
+      full = true
+      delta = await api.sync()
+    }
     if (!this.active) return
     const albums = new Map((full ? [] : this.state.albums).map((album) => [album.id, album]))
     const photos = new Map((full ? [] : this.state.photos).map((photo) => [photo.id, photo]))
@@ -179,21 +200,15 @@ export class SyncEngine {
       const target = this.state.photos.find((photo) => photo.id === id)
       const pending = this.state.pending.find((entry) => entry.meta.id === id || (entry.meta.albumId === target?.albumId && entry.meta.dayKey === target.dayKey))
       if (pending) throw new Error('Wait for this photo to upload before changing it.')
-      this.emit({ photos: deletedAt === 'purge' ? previous.filter((photo) => photo.id !== id)
-        : previous.map((photo) => photo.id === id ? { ...photo, deletedAt } : photo) })
-      try {
-        await requireUser(this.user.id)
-        if (!this.active) return
-        if (deletedAt === 'purge') await api.deletePhoto(id)
-        else {
-          const { photo } = await api.patchPhoto(id, deletedAt)
-          this.emit({ photos: this.state.photos.map((item) => item.id === id ? { ...photo, schema: SCHEMA_VERSION } : item) })
-        }
-      } catch (error) {
-        this.emit({ photos: previous })
-        throw error
+      await requireUser(this.user.id)
+      if (!this.active) return
+      if (deletedAt === 'purge') {
+        await api.deletePhoto(id)
+        await this.savePhotos(previous.filter((photo) => photo.id !== id))
+      } else {
+        const { photo } = await api.patchPhoto(id, deletedAt)
+        await this.savePhotos(previous.map((item) => item.id === id ? { ...photo, schema: SCHEMA_VERSION } : item))
       }
-      await this.persist()
       await this.pull().catch(() => undefined)
       await this.reconcileGhosts().catch(() => undefined)
     })
@@ -202,11 +217,9 @@ export class SyncEngine {
   emptyTrash(): Promise<number> {
     return this.run(async () => {
       const previous = this.state.photos
-      this.emit({ photos: previous.filter((photo) => photo.deletedAt === null) })
-      let deleted: number
-      try { await requireUser(this.user.id); deleted = (await api.emptyTrash()).deleted }
-      catch (error) { this.emit({ photos: previous }); throw error }
-      await this.persist()
+      await requireUser(this.user.id)
+      const { deleted } = await api.emptyTrash()
+      await this.savePhotos(previous.filter((photo) => photo.deletedAt === null))
       await this.pull().catch(() => undefined)
       return deleted
     })

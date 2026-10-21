@@ -45,12 +45,19 @@ class Statement implements D1PreparedStatement {
 
 export class SqliteDatabase implements D1Database {
   private db = new DatabaseSync(':memory:')
+  private chain: Promise<unknown> = Promise.resolve()
 
   prepare(query: string): D1PreparedStatement {
     return new Statement(this.db, query)
   }
 
-  async batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]> {
+  batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]> {
+    const task = this.chain.then(() => this.transaction<T>(statements))
+    this.chain = task.catch(() => undefined)
+    return task
+  }
+
+  private async transaction<T>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]> {
     this.db.exec('BEGIN')
     try {
       const results: D1Result<T>[] = []

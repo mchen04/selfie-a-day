@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { expectNoCameraPhoto, openCamera, pauseCameraClock } from '../e2e-support/camera.ts'
 import { waitForCameraLive } from '../e2e-support/helpers.ts'
+import { createAccount, seedPhoto, signIn, snapshot, syncPage } from '../e2e-support/api.ts'
 
 test('timer advances Off → 3s → 5s → 10s → Off with one tap per choice', async ({ page }) => {
   const camera = await openCamera(page)
@@ -148,6 +149,27 @@ test('timer and flash choices survive reload', async ({ page }) => {
   await waitForCameraLive(page)
   await expect(page.getByTestId('camera-timer')).toHaveAttribute('data-seconds', '3')
   await expect(page.getByTestId('camera-flash')).toHaveAttribute('data-flash', 'on')
+})
+
+test('a newer photo from another device supplies its timer, including Off', async ({ page, browser, baseURL }) => {
+  const account = await createAccount(page.request)
+  await openCamera(page)
+  await page.getByTestId('camera-timer').click()
+  const secondContext = await browser.newContext({ baseURL })
+  try {
+    const second = await secondContext.newPage()
+    await signIn(second, account)
+    const capturedAt = Date.now() + 1000
+    const timed = await seedPhoto(second, '2026-10-21', 'selfies', { timerSeconds: 10, capturedAt })
+    await page.reload()
+    await expect(page.getByTestId('camera-timer')).toHaveAttribute('data-seconds', '10')
+    const untimed = await seedPhoto(second, '2026-10-21', 'selfies', { timerSeconds: 0, capturedAt: capturedAt + 1000 })
+    await syncPage(page)
+    await expect(page.getByTestId('camera-timer')).toHaveAttribute('data-seconds', '0')
+    const synced = await snapshot(page.request)
+    expect(synced.photos.find((photo) => photo.id === timed.id)).toMatchObject({ timerSeconds: 10, deletedAt: expect.any(Number) })
+    expect(synced.photos.find((photo) => photo.id === untimed.id)).toMatchObject({ timerSeconds: 0, deletedAt: null })
+  } finally { await secondContext.close() }
 })
 
 test('camera roll mode disables timer and flash with an accessible reason', async ({ page }) => {

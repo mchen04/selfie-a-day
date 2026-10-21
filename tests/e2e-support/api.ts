@@ -28,7 +28,7 @@ export async function snapshot(request: APIRequestContext): Promise<SyncResponse
   return await response.json() as SyncResponse
 }
 
-export async function seedPhoto(page: Page, dayKey: string, albumId = 'selfies'): Promise<PhotoDTO> {
+export async function seedPhoto(page: Page, dayKey: string, albumId = 'selfies', options: { timerSeconds?: number; capturedAt?: number } = {}): Promise<PhotoDTO> {
   const buffer = await page.evaluate(async () => {
     const canvas = document.createElement('canvas')
     canvas.width = 120; canvas.height = 160
@@ -41,8 +41,8 @@ export async function seedPhoto(page: Page, dayKey: string, albumId = 'selfies')
   })
   const id = randomUUID().replaceAll('-', '').slice(0, 20)
   const response = await page.request.put(`/api/photos/${id}`, { headers: mutationHeaders(), multipart: {
-    meta: JSON.stringify({ albumId, dayKey, capturedAt: Date.parse(`${dayKey}T12:00:00Z`), timeZone: 'UTC', tzOffsetMinutes: 0,
-      width: 120, height: 160, mime: 'image/jpeg', mirrored: false, source: 'file', timerSeconds: 0 }),
+    meta: JSON.stringify({ albumId, dayKey, capturedAt: options.capturedAt ?? Date.parse(`${dayKey}T12:00:00Z`), timeZone: 'UTC', tzOffsetMinutes: 0,
+      width: 120, height: 160, mime: 'image/jpeg', mirrored: false, source: 'file', timerSeconds: options.timerSeconds ?? 0 }),
     master: { name: 'master.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(buffer) },
     thumb: { name: 'thumb.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(buffer) },
   } })

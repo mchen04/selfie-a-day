@@ -304,7 +304,7 @@ describe('albums, photo storage, trash, and delta sync in workerd', () => {
       expect((await h.upload(user, id!, { meta: { dayKey } })).status).toBe(201)
     }
     for (const [id, deletedAt] of [[old, scheduledTime - 30 * 86400000 - 1], [boundary, scheduledTime - 30 * 86400000]] as const) {
-      expect((await h.request(`/api/photos/${id}`, { method: 'PATCH', cookie: user.cookie, json: { deletedAt } })).status).toBe(200)
+      expect((await h.request(`/api/photos/${id}`, { method: 'PATCH', cookie: user.cookie, json: { deletedAt }, now: deletedAt })).status).toBe(200)
     }
     const before = await (await h.request('/api/sync', { cookie: user.cookie })).json<SyncData>()
     const run = await h.request(`/__test/scheduled?at=${scheduledTime}`)

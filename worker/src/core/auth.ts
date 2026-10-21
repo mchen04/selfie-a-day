@@ -42,17 +42,18 @@ export async function authenticate(request: Request, env: Env, now: number): Pro
   const token = requestToken(request, env)
   if (!token) return null
   const id = await tokenHash(token)
-  const row = await env.DB.prepare(`SELECT u.id, u.username, s.expires_at FROM sessions s
+  const row = await env.DB.prepare(`SELECT u.id, u.username, s.expires_at, s.last_seen_at FROM sessions s
     JOIN users u ON u.id = s.user_id WHERE s.id = ? AND s.expires_at > ?`).bind(id, now)
-    .first<User & { expires_at: number }>()
+    .first<User & { expires_at: number; last_seen_at: number }>()
   if (!row) return null
   const session: Session = { user: { id: row.id, username: row.username }, id }
   if (row.expires_at - now < 45 * DAY) {
     await env.DB.prepare('UPDATE sessions SET expires_at = ?, last_seen_at = ? WHERE id = ? AND user_id = ?')
       .bind(now + SESSION_LIFETIME, now, id, row.id).run()
     session.cookie = sessionCookie(env, token)
-  } else {
-    await env.DB.prepare('UPDATE sessions SET last_seen_at = ? WHERE id = ? AND user_id = ?').bind(now, id, row.id).run()
+  } else if (row.last_seen_at <= now - 3_600_000) {
+    await env.DB.prepare('UPDATE sessions SET last_seen_at = ? WHERE id = ? AND user_id = ? AND last_seen_at <= ?')
+      .bind(now, id, row.id, now - 3_600_000).run()
   }
   return session
 }
@@ -80,13 +81,6 @@ function validUsername(username: string): boolean {
 
 function rateError(start: number, duration: number, now: number): HttpError {
   return new HttpError(429, 'too_many_attempts', { 'Retry-After': String(Math.max(1, Math.ceil((start + duration - now) / 1000))) })
-}
-
-async function assertRate(env: Env, keys: string[], limit: number, duration: number, now: number): Promise<void> {
-  for (const key of keys) {
-    const attempt = await env.DB.prepare('SELECT window_start, count FROM auth_attempts WHERE key = ?').bind(key).first<Attempt>()
-    if (attempt && attempt.window_start > now - duration && attempt.count >= limit) throw rateError(attempt.window_start, duration, now)
-  }
 }
 
 async function incrementAttempt(env: Env, key: string, duration: number, now: number): Promise<Attempt> {
@@ -124,23 +118,41 @@ async function login(request: Request, env: Env, now: number): Promise<Response>
   const usernameKey = `login-user:${username.slice(0, 32)}`
   const dailyUsernameKey = `login-user-day:${username.slice(0, 32)}`
   const ipKey = `login-ip:${clientIp(request)}`
-  await assertRate(env, [dailyUsernameKey], 30, DAY, now)
-  await assertRate(env, [usernameKey], 10, LOGIN_WINDOW, now)
-  await assertRate(env, [ipKey], 50, LOGIN_WINDOW, now)
+  const limits = [
+    { key: dailyUsernameKey, limit: 30, duration: DAY },
+    { key: usernameKey, limit: 10, duration: LOGIN_WINDOW },
+    { key: ipKey, limit: 50, duration: LOGIN_WINDOW },
+  ]
+  const attempts = await Promise.all(limits.map(async (limit) => ({ ...limit, ...await incrementAttempt(env, limit.key, limit.duration, now) })))
+  const refund = (entries: typeof attempts) => env.DB.batch(entries.map((attempt) =>
+    env.DB.prepare('UPDATE auth_attempts SET count = max(0, count - 1) WHERE key = ? AND window_start = ?')
+      .bind(attempt.key, attempt.window_start)))
+  const exceeded = attempts.find((attempt) => attempt.count > attempt.limit)
+  if (exceeded) {
+    await refund(attempts)
+    throw rateError(exceeded.window_start, exceeded.duration, now)
+  }
   const user = validUsername(username)
     ? await env.DB.prepare('SELECT id, username, password_hash FROM users WHERE username = ?').bind(username)
       .first<User & { password_hash: string }>() : null
   const password = typeof body.password === 'string' && body.password.length <= 256 ? body.password : ''
   const valid = await verifyPassword(password, user?.password_hash ?? null)
   if (!valid || !user) {
-    await incrementAttempt(env, usernameKey, LOGIN_WINDOW, now)
-    await incrementAttempt(env, ipKey, LOGIN_WINDOW, now)
-    const daily = await incrementAttempt(env, dailyUsernameKey, DAY, now)
-    if (daily.count >= 30) throw rateError(daily.window_start, DAY, now)
     throw new HttpError(401, 'invalid_credentials')
   }
-  await env.DB.prepare('DELETE FROM auth_attempts WHERE key = ?').bind(usernameKey).run()
+  await env.DB.prepare('DELETE FROM auth_attempts WHERE key = ? AND window_start = ?').bind(usernameKey, attempts[1]!.window_start).run()
+  await refund(attempts.filter((attempt) => attempt.key !== usernameKey))
   return json({ user: { id: user.id, username: user.username } }, 200, { 'Set-Cookie': await createSession(env, user.id, now) })
+}
+
+export async function purgeExpiredAuth(env: Env, now: number): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM sessions WHERE id IN (SELECT id FROM sessions WHERE expires_at <= ? ORDER BY expires_at LIMIT 100)').bind(now),
+    env.DB.prepare(`DELETE FROM auth_attempts WHERE key IN (
+      SELECT key FROM auth_attempts WHERE window_start <= ? AND window_start <= CASE
+        WHEN key LIKE 'login-user-day:%' THEN ? WHEN key LIKE 'signup-ip:%' THEN ? ELSE ? END
+      ORDER BY window_start LIMIT 100)`).bind(now - LOGIN_WINDOW, now - DAY, now - SIGNUP_WINDOW, now - LOGIN_WINDOW),
+  ])
 }
 
 export async function handleAuth(request: Request, env: Env, url: URL, session: Session | null, now: number): Promise<Response | null> {
