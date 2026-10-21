@@ -1,3 +1,4 @@
+import type { D1PreparedStatement } from '@cloudflare/workers-types'
 import type { Env } from './env'
 import { boundedBody, empty, HttpError, isAlbumId, isPhotoId, isTimestamp, json, readJson, validTimeZone } from './http'
 import { PHOTO_COLUMNS, photoDto, type PhotoRow } from './records'
@@ -165,7 +166,7 @@ export async function getImage(request: Request, env: Env, userId: string, id: s
   const etags = request.headers.get('If-None-Match')?.split(',').map((tag) => tag.trim().replace(/^W\//, ''))
   if (etags?.includes(object.httpEtag) || etags?.includes('*')) return new Response(null, { status: 304, headers })
   headers.set('Content-Length', String(object.size))
-  return new Response(request.method === 'HEAD' ? null : object.body, { headers })
+  return new Response(request.method === 'HEAD' ? null : object.body as ReadableStream<Uint8Array>, { headers })
 }
 
 export async function patchPhoto(request: Request, env: Env, userId: string, id: string, now: number): Promise<Response> {

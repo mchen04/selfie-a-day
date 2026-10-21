@@ -207,7 +207,7 @@ describe('accounts and sessions in workerd', () => {
     { name: 'an unblocked forwarded IP despite a blocked shared egress IP', limited: '203.0.113.61', headers: { 'cf-connecting-ip': '203.0.113.61', 'x-forwarded-for': '203.0.113.62, 203.0.113.63' }, status: 401 },
   ])('uses $name for login limits', async ({ limited, headers, status }) => {
     await h.sql('INSERT INTO auth_attempts (key, window_start, count) VALUES (?, ?, ?)', `login-ip:${limited}`, TEST_NOW, 50)
-    const response = await h.request('/api/auth/login', { method: 'POST', json: { username: 'someone', password: TEST_PASSWORD }, headers: headers as Record<string, string> })
+    const response = await h.request('/api/auth/login', { method: 'POST', json: { username: 'someone', password: TEST_PASSWORD }, headers })
     expect(response.status).toBe(status)
     if (status === 429) expect(response.headers.get('Retry-After')).toBe('900')
   })

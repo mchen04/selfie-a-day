@@ -1,3 +1,4 @@
+import type { ExecutionContext } from '@cloudflare/workers-types'
 import worker from '../../src/index'
 import type { Env } from '../../src/core/env'
 

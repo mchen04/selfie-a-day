@@ -24,7 +24,7 @@ export interface CaptureOptions {
 }
 
 export interface CaptureResult {
-  meta: PhotoMeta & { timerSeconds: number }
+  meta: PhotoMeta
   master: StoredImage
   thumb: StoredImage
   timerSeconds: number

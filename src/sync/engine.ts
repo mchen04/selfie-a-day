@@ -76,6 +76,12 @@ export class SyncEngine {
     await writeSnapshot(this.user.id, { albums, photos, cursor })
   }
 
+  private async savePhotos(photos: PhotoMeta[]) {
+    if (!this.active) return
+    await writeSnapshot(this.user.id, { albums: this.state.albums, photos, cursor: this.state.cursor })
+    this.emit({ photos })
+  }
+
   private async pull() {
     const full = !this.state.cursor
     const delta = await api.sync(full ? undefined : this.state.cursor)
@@ -179,21 +185,15 @@ export class SyncEngine {
       const target = this.state.photos.find((photo) => photo.id === id)
       const pending = this.state.pending.find((entry) => entry.meta.id === id || (entry.meta.albumId === target?.albumId && entry.meta.dayKey === target.dayKey))
       if (pending) throw new Error('Wait for this photo to upload before changing it.')
-      this.emit({ photos: deletedAt === 'purge' ? previous.filter((photo) => photo.id !== id)
-        : previous.map((photo) => photo.id === id ? { ...photo, deletedAt } : photo) })
-      try {
-        await requireUser(this.user.id)
-        if (!this.active) return
-        if (deletedAt === 'purge') await api.deletePhoto(id)
-        else {
-          const { photo } = await api.patchPhoto(id, deletedAt)
-          this.emit({ photos: this.state.photos.map((item) => item.id === id ? { ...photo, schema: SCHEMA_VERSION } : item) })
-        }
-      } catch (error) {
-        this.emit({ photos: previous })
-        throw error
+      await requireUser(this.user.id)
+      if (!this.active) return
+      if (deletedAt === 'purge') {
+        await api.deletePhoto(id)
+        await this.savePhotos(previous.filter((photo) => photo.id !== id))
+      } else {
+        const { photo } = await api.patchPhoto(id, deletedAt)
+        await this.savePhotos(previous.map((item) => item.id === id ? { ...photo, schema: SCHEMA_VERSION } : item))
       }
-      await this.persist()
       await this.pull().catch(() => undefined)
       await this.reconcileGhosts().catch(() => undefined)
     })
@@ -202,11 +202,9 @@ export class SyncEngine {
   emptyTrash(): Promise<number> {
     return this.run(async () => {
       const previous = this.state.photos
-      this.emit({ photos: previous.filter((photo) => photo.deletedAt === null) })
-      let deleted: number
-      try { await requireUser(this.user.id); deleted = (await api.emptyTrash()).deleted }
-      catch (error) { this.emit({ photos: previous }); throw error }
-      await this.persist()
+      await requireUser(this.user.id)
+      const { deleted } = await api.emptyTrash()
+      await this.savePhotos(previous.filter((photo) => photo.deletedAt === null))
       await this.pull().catch(() => undefined)
       return deleted
     })

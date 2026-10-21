@@ -166,6 +166,40 @@ describe('sync', () => {
     await expect(current.mutatePhoto(trashed.id, null)).rejects.toThrow(/already/)
     expect(current.state.photos[0]?.deletedAt).toBe(100)
   })
+  it('keeps a restored photo in Trash until the server accepts it and reload can read it', async () => {
+    const trashed = { ...photo(), deletedAt: 100 }
+    const { setPhotos } = server([trashed])
+    let accept: (() => void) | undefined
+    let entered: (() => void) | undefined
+    const requested = new Promise<void>((resolve) => { entered = resolve })
+    const waiting = new Promise<void>((resolve) => { accept = resolve })
+    vi.spyOn(api, 'patchPhoto').mockImplementation(async () => {
+      entered!()
+      await waiting
+      const restored = { ...trashed, deletedAt: null }
+      setPhotos([restored])
+      return { photo: restored }
+    })
+    let reloaded: Promise<void> | undefined
+    const next = engine()
+    const current = new SyncEngine({ id: 'synthetic-a', username: 'synthetic-a' }, (state) => {
+      if (state.photos.some((item) => item.id === trashed.id && item.deletedAt === null)) {
+        reloaded ??= next.hydrate()
+      }
+    })
+    engines.push(current)
+    await current.hydrate(); await current.refresh()
+    const restoring = current.mutatePhoto(trashed.id, null)
+    await requested
+    try {
+      expect(current.visiblePhotos()[0]?.deletedAt).toBe(100)
+    } finally {
+      accept!()
+      await restoring
+    }
+    await reloaded
+    expect(next.visiblePhotos()[0]?.deletedAt).toBeNull()
+  })
   it('rolls back failed trash, permanent delete, and empty actions', async () => {
     const original = photo()
     server([original])

@@ -1,3 +1,4 @@
+import type { ExecutionContext, ScheduledController } from '@cloudflare/workers-types'
 import type { Env } from './core/env'
 import { authenticate, handleAuth } from './core/auth'
 import { putAlbum } from './core/albums'

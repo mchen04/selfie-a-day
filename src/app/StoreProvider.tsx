@@ -111,8 +111,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [currentEngine])
 
   const savePhoto = useCallback(async (result: CaptureResult) => {
-    const seconds = 'timerSeconds' in result && typeof result.timerSeconds === 'number' ? result.timerSeconds : 0
-    await currentEngine().enqueue({ ...result.meta, timerSeconds: [0, 3, 5, 10].includes(seconds) ? seconds : 0 }, result.master, result.thumb)
+    await currentEngine().enqueue(result.meta, result.master, result.thumb)
   }, [currentEngine])
 
   const logout = useCallback(async () => {

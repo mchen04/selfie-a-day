@@ -19,9 +19,7 @@ import {
   IconSettings,
   IconTimeline,
 } from '../components/Icons.tsx'
-import { Advice } from '../components/Advice.tsx'
 import { AlbumPicker } from '../components/AlbumPicker.tsx'
-import { chooseAdvice, type AdviceKind } from '../advice.ts'
 import { CaptureFrame } from '../components/CaptureFrame.tsx'
 import { CameraControls } from '../components/camera/CameraControls.tsx'
 import { GhostControls } from '../components/GhostControls.tsx'
@@ -54,7 +52,6 @@ export function CaptureScreen() {
   const [exposure] = useState(createCaptureFlash)
   const screenFlash = useSyncExternalStore(exposure.subscribe, exposure.getSnapshot)
   const [choosingAlbum, setChoosingAlbum] = useState(false)
-  const [dismissed, setDismissed] = useState<ReadonlySet<AdviceKind>>(() => new Set())
 
   const latest = metas[0] ?? null
   const preferences = useCameraPreferences(activeAlbum.id, latest)
@@ -234,8 +231,6 @@ export function CaptureScreen() {
     return () => window.removeEventListener('keydown', onKey)
   }, [capture])
 
-  const advice = chooseAdvice({ metas: allMetas, settings, dismissed })
-
   const progress =
     streak > 0
       ? `${streak} day${streak === 1 ? '' : 's'} in a row`
@@ -358,13 +353,6 @@ export function CaptureScreen() {
           <span>{storageError}</span>
         </div>
       ) : null}
-
-      <Advice
-        kind={advice}
-        photoCount={allMetas.length}
-        onBackup={() => navigate({ name: 'settings' })}
-        onDismiss={(kind) => setDismissed((prev) => new Set(prev).add(kind))}
-      />
 
       <div className="capture__controls">
         <GhostControls

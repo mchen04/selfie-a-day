@@ -26,3 +26,34 @@ test('trash, undo, restore, and permanently delete a server photo', async ({ pag
   await expect(page.getByTestId('trash-empty')).toBeVisible()
   expect((await page.request.get(`/api/photos/${photo.id}/master`)).status()).toBe(404)
 })
+
+test('a delayed restore stays visible until a full navigation can read the restored photo', async ({ page }) => {
+  await page.goto('/')
+  await completeOnboarding(page)
+  const photo = await seedPhoto(page, '2026-08-09')
+  await page.goto(`/photo/${photo.id}`)
+  await page.getByTestId('photo-delete').click()
+  await expect(page.getByTestId('undo-trash')).toBeVisible()
+  await page.goto('/trash')
+  await expect(page.getByTestId('trash-item')).toHaveCount(1)
+  let release: (() => void) | undefined
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  let entered: (() => void) | undefined
+  const requested = new Promise<void>((resolve) => { entered = resolve })
+  await page.route(`**/api/photos/${photo.id}`, async (route) => {
+    if (route.request().method() === 'PATCH') { entered!(); await gate }
+    await route.continue()
+  })
+  await page.getByRole('button', { name: 'Restore', exact: true }).click()
+  await requested
+  try {
+    await expect(page.getByTestId('trash-item')).toHaveCount(1)
+    await expect(page.getByRole('button', { name: 'Restore', exact: true })).toBeDisabled()
+    await expect(page.getByTestId('trash-empty')).toHaveCount(0)
+  } finally { release!() }
+  await expect(page.getByTestId('trash-empty')).toBeVisible()
+  await page.goto(`/photo/${photo.id}`)
+  await expect(page.getByTestId('photo-delete')).toBeVisible()
+  await expect(page.getByTestId('photo-image')).toBeVisible()
+  expect((await snapshot(page.request)).photos.find((item) => item.id === photo.id)?.deletedAt).toBeNull()
+})

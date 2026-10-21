@@ -1,3 +1,4 @@
+import type { ExecutionContext, ScheduledController } from '@cloudflare/workers-types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import worker from '../../src/index'
 import type { Env } from '../../src/core/env'

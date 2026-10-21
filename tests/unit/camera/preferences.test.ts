@@ -33,9 +33,8 @@ describe('camera preferences', () => {
     expect(resolveTimer({ seconds: 5, at: 300 }, { capturedAt: 200, timerSeconds: 10 })).toBe(5)
   })
 
-  it('the latest untimed photo disables the timer, including legacy photos', () => {
+  it('the latest untimed photo disables the timer', () => {
     expect(resolveTimer({ seconds: 10, at: 100 }, { capturedAt: 200, timerSeconds: 0 })).toBe(0)
-    expect(resolveTimer({ seconds: 10, at: 100 }, { capturedAt: 200 })).toBe(0)
   })
 
   it('preserves a local choice made at the latest photo timestamp', () => {
