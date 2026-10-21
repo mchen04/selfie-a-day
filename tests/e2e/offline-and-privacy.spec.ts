@@ -8,9 +8,11 @@ test('cached account and metadata open offline without caching API responses in 
   await captureOnce(page)
   await waitForOfflineReady(page)
   await context.setOffline(true)
-  await page.reload()
+  const reopened = await page.reload()
+  expect(reopened?.fromServiceWorker()).toBe(true)
   await expect(page.getByTestId('capture-screen')).toBeVisible()
   await expect(page.getByTestId('ghost-image')).toBeVisible()
+  expect(await page.evaluate(() => navigator.serviceWorker.controller?.state)).toBe('activated')
   const apiCacheEntries = await page.evaluate(async () => {
     const urls: string[] = []
     for (const name of await caches.keys()) for (const request of await (await caches.open(name)).keys()) if (new URL(request.url).pathname.startsWith('/api/')) urls.push(request.url)

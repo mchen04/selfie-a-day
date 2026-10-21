@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createAccount, snapshot } from './api.ts'
+import { offlineReadiness } from './offline.ts'
 
 /**
  * Evidence lives outside the repository, per the project's convention that
@@ -237,18 +238,7 @@ export function dominantChannel([r, g, b]: [number, number, number]): 'red' | 'g
 export async function waitForOfflineReady(page: Page): Promise<void> {
   await expect
     .poll(
-      async () =>
-        page.evaluate(async () => {
-          const registration = await navigator.serviceWorker.getRegistration()
-          if (registration?.active?.state !== 'activated') return 'not-activated'
-          if (!navigator.serviceWorker.controller) return 'not-controlling'
-
-          let entries = 0
-          for (const key of await caches.keys()) {
-            entries += (await (await caches.open(key)).keys()).length
-          }
-          return entries > 5 ? 'ready' : `precache-${entries}`
-        }),
+      () => page.evaluate(offlineReadiness),
       { timeout: 30_000, message: 'service worker never became offline-ready' },
     )
     .toBe('ready')
