@@ -16,6 +16,7 @@ export class SyncEngine {
   private retry: ReturnType<typeof setTimeout> | undefined
   private refreshPending = false
   private refreshRequested = false
+  private uploadRequested = false
   private readonly changed: (state: SyncState) => void
 
   constructor(user: User, changed: (state: SyncState) => void) {
@@ -64,9 +65,13 @@ export class SyncEngine {
           session = undefined
           if (!this.active) return
           await this.pull(verified)
-          await this.flush()
-          await this.pull()
-          await this.reconcileGhosts()
+          do {
+            await this.flushUploads()
+            if (!this.active) return
+            await this.pull()
+            if (this.uploadRequested) continue
+            await this.reconcileGhosts()
+          } while (this.active && this.uploadRequested)
         } while (this.active && this.refreshRequested)
       } catch (error) {
         this.emit({ error: error instanceof ApiError ? error.message : 'Offline. New photos wait here until you reconnect.' })
@@ -116,12 +121,21 @@ export class SyncEngine {
     if (!this.active) return Promise.reject(new Error('Please sign in again.'))
     const write = (async () => {
       await queuePhoto({ userId: this.user.id, meta, master, thumb, attempts: 0, nextAttemptAt: 0, error: null })
+      this.uploadRequested = true
       this.emit({ pending: await listPending(this.user.id) })
-      this.scheduleRetry(0)
+      if (!this.refreshPending) this.scheduleRetry(0)
     })()
     this.writes.add(write)
     void write.then(() => this.writes.delete(write), () => this.writes.delete(write))
     return write
+  }
+
+  private async flushUploads() {
+    do {
+      await Promise.all(this.writes)
+      this.uploadRequested = false
+      await this.flush()
+    } while (this.active && this.uploadRequested)
   }
 
   private async flush() {
@@ -163,7 +177,10 @@ export class SyncEngine {
     const next = Math.min(...this.state.pending.map((entry) => entry.nextAttemptAt))
     const wait = delay ?? Math.max(1000, next - Date.now())
     if (Number.isFinite(wait) && wait < 2_147_483_647) {
-      this.retry = setTimeout(() => { void this.refresh() }, wait)
+      this.retry = setTimeout(() => {
+        if (this.refreshPending) this.uploadRequested = true
+        else void this.refresh()
+      }, wait)
     }
   }
 

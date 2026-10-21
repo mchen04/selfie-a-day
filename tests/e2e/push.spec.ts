@@ -102,7 +102,10 @@ test('two taps enable one encrypted reminder; a saved photo suppresses the eveni
       const response = await localWorker.fetch(`http://selfie-test${url.pathname}${url.search}`, {
         method: request.method(), headers: request.headers(), ...(body ? { body: new Uint8Array(body) } : {}),
       })
-      await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(await response.arrayBuffer()) })
+      const headers = Object.fromEntries(response.headers)
+      const cookies = response.headers.getSetCookie()
+      if (cookies.length) headers['set-cookie'] = cookies.join('\n')
+      await route.fulfill({ status: response.status, headers, body: Buffer.from(await response.arrayBuffer()) })
     })
     await page.addInitScript(({ endpoint, p256dh, auth, publicKey }) => {
       let permission: NotificationPermission = 'default'
@@ -138,6 +141,7 @@ test('two taps enable one encrypted reminder; a saved photo suppresses the eveni
     const signup = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/auth/signup')
     await page.getByTestId('account-submit').click()
     expect((await signup).status()).toBe(201)
+    expect((await page.context().cookies()).map((cookie) => cookie.name)).toEqual(expect.arrayContaining(['sad_session', 'sad_hint']))
     await expect(page.getByTestId('capture-screen')).toBeVisible()
     await page.evaluate(async () => { await navigator.serviceWorker.ready; sessionStorage.setItem('push-taps', '0') })
     await page.getByTestId('nav-settings').click()

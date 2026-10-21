@@ -18,6 +18,98 @@ afterEach(async () => {
 })
 
 describe('sync', () => {
+  it.each(['first pull', 'second pull', 'ghost download', 'upload'])('joins a capture to the refresh during %s without duplicate checks before its PUT', async (phase) => {
+    const original = photo(), capture = pending('synthetic-a', photo(original.capturedAt + 1))
+    if (phase === 'upload') await queuePhoto(pending('synthetic-a', original))
+    const { mocked, uploadIds } = server(phase === 'ghost download' ? [original] : [])
+    const respond = mocked.getMockImplementation()!
+    let entered: (() => void) | undefined
+    let release: (() => void) | undefined
+    const blocked = new Promise<void>((resolve) => { entered = resolve })
+    const waiting = new Promise<void>((resolve) => { release = resolve })
+    let pulls = 0, held = false
+    mocked.mockImplementation(async (url, init) => {
+      if (url.startsWith('/api/sync')) pulls++
+      const hold = phase === 'first pull' ? pulls === 1 && url.startsWith('/api/sync')
+        : phase === 'second pull' ? pulls === 2 && url.startsWith('/api/sync')
+          : phase === 'ghost download' ? url.endsWith('/master') : init?.method === 'PUT'
+      if (hold && !held) { held = true; entered!(); await waiting }
+      return respond(url, init)
+    })
+    const current = engine()
+    await current.hydrate()
+    const refreshing = current.refresh(Promise.resolve({ user: current.user }))
+    await blocked
+    const start = mocked.mock.calls.length
+    try {
+      await current.enqueue(capture.meta, capture.master, capture.thumb)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    } finally { release!() }
+    await refreshing
+    const calls = mocked.mock.calls.slice(start)
+    const upload = calls.findIndex(([url, init]) => url.endsWith(capture.meta.id) && init?.method === 'PUT')
+    expect(upload).toBeGreaterThanOrEqual(0)
+    expect(calls.slice(0, upload).filter(([url]) => url.startsWith('/api/sync')).length).toBeLessThanOrEqual(1)
+    expect(calls.slice(0, upload).filter(([url]) => url === '/api/auth/me')).toHaveLength(1)
+    expect(calls.filter(([url]) => url === '/api/auth/me')).toHaveLength(1)
+    expect(uploadIds.filter((id) => id === capture.meta.id)).toHaveLength(1)
+    expect(await listPending('synthetic-a')).toEqual([])
+  })
+
+  it('uploads before a refresh queued during a ghost download starts another cycle', async () => {
+    const original = photo(), capture = pending('synthetic-a', photo(original.capturedAt + 1))
+    const { mocked } = server([original])
+    const respond = mocked.getMockImplementation()!
+    let entered: (() => void) | undefined
+    let release: (() => void) | undefined
+    const blocked = new Promise<void>((resolve) => { entered = resolve })
+    const waiting = new Promise<void>((resolve) => { release = resolve })
+    let held = false
+    mocked.mockImplementation(async (url, init) => {
+      if (url.endsWith('/master') && !held) { held = true; entered!(); await waiting }
+      return respond(url, init)
+    })
+    const current = engine()
+    await current.hydrate()
+    const refreshing = current.refresh(Promise.resolve({ user: current.user }))
+    await blocked
+    const queued = current.refresh()
+    const start = mocked.mock.calls.length
+    try { await current.enqueue(capture.meta, capture.master, capture.thumb) }
+    finally { release!() }
+    await Promise.all([refreshing, queued])
+    const calls = mocked.mock.calls.slice(start)
+    const upload = calls.findIndex(([url, init]) => url.endsWith(capture.meta.id) && init?.method === 'PUT')
+    expect(upload).toBeGreaterThanOrEqual(0)
+    expect(calls.slice(0, upload).filter(([url]) => url.startsWith('/api/sync')).length).toBeLessThanOrEqual(1)
+    expect(calls.slice(0, upload).filter(([url]) => url === '/api/auth/me')).toHaveLength(1)
+    expect(await listPending('synthetic-a')).toEqual([])
+  })
+
+  it('keeps a joined capture in the outbox if the account changes during the refresh', async () => {
+    const original = photo(), capture = pending('synthetic-a', photo(original.capturedAt + 1))
+    const { mocked, uploadIds } = server([original])
+    const respond = mocked.getMockImplementation()!
+    let entered: (() => void) | undefined
+    let release: (() => void) | undefined
+    const blocked = new Promise<void>((resolve) => { entered = resolve })
+    const waiting = new Promise<void>((resolve) => { release = resolve })
+    mocked.mockImplementation(async (url, init) => {
+      if (url.endsWith('/master')) { entered!(); await waiting }
+      if (url === '/api/auth/me') return reply({ user: { id: 'synthetic-b', username: 'synthetic-b' } })
+      return respond(url, init)
+    })
+    const current = engine()
+    await current.hydrate()
+    const refreshing = current.refresh(Promise.resolve({ user: current.user }))
+    await blocked
+    try { await current.enqueue(capture.meta, capture.master, capture.thumb) }
+    finally { release!() }
+    await refreshing
+    expect(uploadIds).toEqual([])
+    expect((await listPending('synthetic-a')).map((entry) => entry.meta.id)).toEqual([capture.meta.id])
+  })
+
   it('pulls a newer untimed retake when refresh arrives during a ghost download', async () => {
     const timed = { ...photo(), timerSeconds: 10 }
     const untimed = { ...photo(timed.capturedAt + 1000), timerSeconds: 0 }
