@@ -9,6 +9,7 @@ import {
   type StoredImage,
 } from '../core/types.ts'
 import { bestEncodeFormat, canvasToBlob, decodeImage, makeThumbnail, MASTER_QUALITY } from './encode.ts'
+import { timerSeconds } from './preferences.ts'
 
 export interface CaptureOptions {
   longEdge: number
@@ -19,12 +20,14 @@ export interface CaptureOptions {
   albumId?: string
   /** IANA timezone used for this album's day boundary. */
   timeZone?: string
+  timerSeconds?: number
 }
 
 export interface CaptureResult {
-  meta: PhotoMeta
+  meta: PhotoMeta & { timerSeconds: number }
   master: StoredImage
   thumb: StoredImage
+  timerSeconds: number
 }
 
 export class CaptureError extends Error {
@@ -84,6 +87,7 @@ export async function captureFromSource(
   const thumb = await makeThumbnail(bytes, mime)
 
   return {
+    timerSeconds: timerSeconds(options.timerSeconds),
     meta: {
       id,
       albumId: options.albumId ?? DEFAULT_ALBUM_ID,
@@ -96,6 +100,7 @@ export async function captureFromSource(
       mime,
       mirrored: options.mirrored,
       source: options.source ?? 'camera',
+      timerSeconds: timerSeconds(options.timerSeconds),
       masterBytes: bytes.byteLength,
       thumbBytes: thumb.bytes.byteLength,
       deletedAt: null,
