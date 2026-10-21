@@ -15,10 +15,11 @@
   padding: 0 max(var(--safe-left), 0px) 0 max(var(--safe-right), 0px);
 }
 
+/* The topbar and the stage padding already clear the safe areas. */
 .camera-controls {
   position: absolute;
-  top: max(8px, var(--safe-top));
-  right: max(8px, var(--safe-right));
+  top: 8px;
+  right: 8px;
   z-index: 5;
   display: flex;
   gap: 8px;
@@ -158,6 +159,7 @@
 }
 
 .album-row__mark {
+  flex: none;
   width: 34px;
   height: 34px;
   display: grid;
@@ -174,10 +176,8 @@
 }
 
 .album-row__text strong {
-  overflow: hidden;
   font-size: 15px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .album-row__text span {
@@ -288,11 +288,40 @@
   }
 }
 
-.frame__hint {
+/* Notices stack at the foot of the frame: clear of the camera controls at its
+   top and of the shutter below it. */
+.frame__notices {
   position: absolute;
-  left: 50%;
+  left: 12px;
+  right: 12px;
   bottom: 12px;
-  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.frame__notices .toast-layer {
+  position: static;
+}
+
+.frame__notices .toast {
+  max-width: 100%;
+}
+
+.frame__notices .cloud-status {
+  max-width: 100%;
+  margin: 0;
+  border-color: transparent;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 66%);
+  backdrop-filter: blur(8px);
+}
+
+.frame__hint {
+  max-width: 100%;
   margin: 0;
   padding: 6px 12px;
   border-radius: 999px;
@@ -301,9 +330,7 @@
   color: rgb(255 255 255 / 88%);
   font-size: 12.5px;
   font-weight: 500;
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 3;
+  text-align: center;
 }
 
 .frame__overlay {
@@ -557,8 +584,9 @@
   font-size: 13.5px;
 }
 
-/* Anchored to the top. The bottom of a camera screen belongs to the thumb, and
-   a toast there covers the very controls the user just reached for. */
+/* Anchored to the top. The bottom of a screen belongs to the thumb, and a
+   toast there covers the very controls the user just reached for. The camera
+   screen stacks its toast in .frame__notices instead. */
 .toast-layer {
   position: absolute;
   left: 0;
@@ -869,52 +897,113 @@
 
 /* --- Settings ------------------------------------------------------------- */
 
+/* Grouped 44px rows, as in iOS Settings. The reversed scroller holds one list,
+   so the order stays as written but the list rests on the bottom edge: on a
+   tall phone it sits under the thumb, on a short one it opens at its end and
+   stays there while rows load in. */
 .settings {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 4px calc(var(--safe-right) + 14px) calc(var(--safe-bottom) + 28px)
+  flex-direction: column-reverse;
+  padding: 4px calc(var(--safe-right) + 14px) calc(var(--safe-bottom) + 16px)
     calc(var(--safe-left) + 14px);
 }
 
-.album-settings__switch {
+.settings__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings__group {
+  display: flex;
+  flex-direction: column;
+  padding: 0 14px;
+}
+
+.settings__row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  min-height: 58px;
-  padding: 8px 12px;
-  border: 1px solid var(--line);
-  border-radius: 13px;
-  background: var(--surface-2);
+  min-height: var(--tap);
+  font-size: 15px;
   text-align: left;
 }
 
-.album-settings__switch > span:first-child {
-  display: flex;
-  flex-direction: column;
+.settings__row + .settings__row {
+  border-top: 1px solid var(--line);
+}
+
+.settings__label {
+  flex: none;
+}
+
+.settings__row > .text-input,
+.settings__row > .select-input,
+.settings__row > input[type='range'] {
+  flex: 1;
   min-width: 0;
 }
 
-.album-settings__switch strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.settings__row > input[type='range'] {
+  height: var(--tap);
+  accent-color: var(--accent);
 }
 
-.album-settings__switch small {
+.settings__value {
+  min-width: 36px;
   color: var(--muted);
+  font-size: 13px;
+  text-align: right;
 }
 
-.album-settings__switch-action {
-  display: flex;
-  align-items: center;
-  gap: 3px;
+.settings__link {
   color: var(--accent);
-  font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
+}
+
+.settings__link strong {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.settings__link > svg {
   flex: none;
+  color: var(--faint);
+}
+
+.settings__link-hint {
+  font-size: 13px;
+}
+
+.settings__link:disabled,
+.settings__action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.settings__action {
+  min-width: var(--tap);
+  min-height: var(--tap);
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.settings__action--danger {
+  color: var(--danger);
+}
+
+.settings__name {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
 .section__title {
@@ -953,7 +1042,6 @@
 
 .row__control {
   flex: none;
-  min-width: 116px;
   display: flex;
   justify-content: flex-end;
 }
@@ -961,10 +1049,6 @@
 .row:has(.segmented) {
   flex-direction: column;
   align-items: stretch;
-}
-
-.row:has(.segmented) .row__control {
-  min-width: 0;
 }
 
 .segmented {
@@ -1033,6 +1117,11 @@
 
 .switch[aria-checked='true'] .switch__knob {
   transform: translateX(20px);
+}
+
+.switch:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .facts {

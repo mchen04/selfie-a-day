@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:ux": "playwright test -c playwright.ux.config.ts",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run test:worker && npm run build",
     "verify:full": "npm run verify && npm run test:e2e",
     "fixtures": "node scripts/make-fixtures.mjs",

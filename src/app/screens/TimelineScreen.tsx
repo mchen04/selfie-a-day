@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { dayKeyToDate, formatDayLabel } from '../../core/day.ts'
 import type { PhotoMeta } from '../../core/types.ts'
 import { AlbumPicker } from '../components/AlbumPicker.tsx'
+import { CloudStatus } from '../components/cloud/CloudStatus.tsx'
 import { IconBack, IconCamera, IconChevronDown, IconPlay } from '../components/Icons.tsx'
 import { Playback } from '../components/Playback.tsx'
 import { goBack, useNavigate } from '../router.ts'
@@ -95,6 +96,7 @@ export function TimelineScreen() {
           </button>
         ) : null}
       </header>
+      <CloudStatus />
 
       <div className="screen__scroll">
         {status === 'loading' ? (

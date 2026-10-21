@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { dayKeyToDate } from '../../core/day.ts'
 const TRASH_RETENTION_MS = 30 * 86_400_000
+import { CloudStatus } from '../components/cloud/CloudStatus.tsx'
 import { IconBack, IconCamera, IconRestore, IconTrash } from '../components/Icons.tsx'
 import { Toast } from '../components/Toast.tsx'
 import { goBack } from '../router.ts'
@@ -98,6 +99,7 @@ export function TrashScreen() {
           </button>
         ) : null}
       </header>
+      <CloudStatus />
 
       <div className="screen__scroll trash-screen">
         <p className="trash-note">

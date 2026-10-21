@@ -4,7 +4,6 @@ import { usePushSync } from '../push/usePushSync.ts'
 import { CaptureScreen } from './screens/CaptureScreen.tsx'
 import { UndoTrash } from './components/UndoTrash.tsx'
 import { AccountScreen } from './account/AccountScreen.tsx'
-import { CloudStatus } from './components/cloud/CloudStatus.tsx'
 import { PhotoScreen } from './screens/PhotoScreen.tsx'
 import { SettingsScreen } from './screens/SettingsScreen.tsx'
 import { TimelineScreen } from './screens/TimelineScreen.tsx'
@@ -70,7 +69,6 @@ export function App() {
         <CaptureScreen />
       )}
 
-      <CloudStatus />
       <UndoTrash />
 
       {sw.updateReady ? (

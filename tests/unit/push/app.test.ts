@@ -109,3 +109,23 @@ describe('app reminder integration', () => {
     expect(container.textContent).toContain('Offline')
   })
 })
+
+describe('settings album form', () => {
+  function type(input: HTMLInputElement, value: string) {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+
+  it('shows an album that syncs in after Settings opened and saves only real edits', async () => {
+    await render(SettingsScreen)
+    expect(container.querySelector('[data-testid="save-album"]')).toBeNull()
+    const synced = { ...defaultAlbum(), timeZone: 'UTC' }
+    app = { ...app, albums: [synced], activeAlbum: synced }
+    await render(SettingsScreen)
+    expect(container.querySelector<HTMLSelectElement>('[data-testid="album-timezone"]')!.value).toBe('UTC')
+    expect(container.querySelector('[data-testid="save-album"]')).toBeNull()
+    act(() => { type(container.querySelector<HTMLInputElement>('[data-testid="album-name"]')!, 'Progress') })
+    await act(async () => { container.querySelector<HTMLButtonElement>('[data-testid="save-album"]')!.click(); await Promise.resolve() })
+    expect(app.actions.updateAlbum).toHaveBeenCalledWith(synced.id, { name: 'Progress', timeZone: 'UTC' })
+  })
+})

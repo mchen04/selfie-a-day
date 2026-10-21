@@ -8,7 +8,7 @@ import { photo } from './cloud/fixtures.ts'
 const actions = vi.hoisted(() => ({ restorePhoto: vi.fn(), deletePhotoPermanently: vi.fn(), emptyTrash: vi.fn() }))
 const trashed = { ...photo(), deletedAt: 100 }
 vi.mock('../../src/app/store-context.ts', () => ({ useApp: () => ({
-  trashedMetas: [trashed], albums: [defaultAlbum()], actions, status: 'ready',
+  trashedMetas: [trashed], albums: [defaultAlbum()], actions, status: 'ready', pendingIds: [], syncError: null,
 }) }))
 vi.mock('../../src/app/useStoredImage.ts', () => ({ useStoredImage: () => ({ url: null }) }))
 vi.mock('../../src/app/router.ts', () => ({ goBack: vi.fn() }))

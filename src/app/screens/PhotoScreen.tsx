@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { formatDayLabel } from '../../core/day.ts'
+import { CloudStatus } from '../components/cloud/CloudStatus.tsx'
 import { IconBack, IconChevronLeft, IconChevronRight, IconTrash } from '../components/Icons.tsx'
 import { Toast } from '../components/Toast.tsx'
 import { useToast } from '../useToast.ts'
@@ -93,6 +94,7 @@ export function PhotoScreen({ id }: { id: string }) {
           <IconTrash />
         </button>
       </header>
+      <CloudStatus />
 
       <div className="photo__stage">
         <div className="frame frame--static">

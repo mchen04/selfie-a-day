@@ -22,6 +22,7 @@ import {
 import { AlbumPicker } from '../components/AlbumPicker.tsx'
 import { CaptureFrame } from '../components/CaptureFrame.tsx'
 import { CameraControls } from '../components/camera/CameraControls.tsx'
+import { CloudStatus } from '../components/cloud/CloudStatus.tsx'
 import { GhostControls } from '../components/GhostControls.tsx'
 import { Toast } from '../components/Toast.tsx'
 import { useToast } from '../useToast.ts'
@@ -337,13 +338,17 @@ export function CaptureScreen() {
             onUseLibrary={() => fileInputRef.current?.click()}
           />
 
-          {latest && settings.ghostEnabled && camera.state === 'live' ? (
-            <p className="frame__hint" data-testid="ghost-hint">
-              {todayDone
-                ? "Lined up with today's photo"
-                : `Line your eyes up with ${formatDayLabel(latest.dayKey).toLowerCase()}`}
-            </p>
-          ) : null}
+          <div className="frame__notices">
+            <Toast toast={toast} />
+            <CloudStatus />
+            {latest && settings.ghostEnabled && camera.state === 'live' ? (
+              <p className="frame__hint" data-testid="ghost-hint">
+                {todayDone
+                  ? "Lined up with today's photo"
+                  : `Line your eyes up with ${formatDayLabel(latest.dayKey).toLowerCase()}`}
+              </p>
+            ) : null}
+          </div>
         </CaptureFrame>
       </div>
 
@@ -405,7 +410,6 @@ export function CaptureScreen() {
         aria-hidden="true"
       />
 
-      <Toast toast={toast} />
       {screenFlash ? <div className="camera-screen-flash" data-testid="screen-flash" aria-hidden="true" /> : null}
 
       {choosingAlbum ? (
@@ -445,8 +449,8 @@ function CameraStatus({
         <IconCamera size={30} />
         <p className="frame__overlay-title">Camera roll mode</p>
         <p className="frame__overlay-body">
-          {fallbackReason ?? 'This browser cannot show a live preview.'} Tap the shutter to take
-          today&apos;s photo with your phone&apos;s camera instead.
+          {fallbackReason ?? 'This browser cannot show a live preview.'} Tap the shutter to open the
+          camera.
         </p>
       </div>
     )

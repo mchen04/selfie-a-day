@@ -76,9 +76,9 @@ export function Reminders({ albums, onError }: { albums: Album[]; onError: (mess
             <input type="time" className="reminder-row__time" aria-label={`Reminder time for ${album.name}`} value={pref.time} disabled={disabled}
               aria-describedby={reason ? 'reminders-reason' : undefined}
               onChange={(event) => { if (event.target.validity.valid && event.target.value) void save(album, pref, { time: event.target.value }) }} />
-            <button type="button" className="reminder-switch" role="switch" aria-label={`Reminders for ${album.name}`} aria-checked={!reason && pref.enabled}
+            <button type="button" className="switch" role="switch" aria-label={`Reminders for ${album.name}`} aria-checked={!reason && pref.enabled}
               disabled={disabled} aria-describedby={reason ? 'reminders-reason' : undefined} data-testid={`reminder-toggle-${album.id}`}
-              onClick={() => void save(album, pref, { enabled: !pref.enabled })}><span /></button>
+              onClick={() => void save(album, pref, { enabled: !pref.enabled })}><span className="switch__knob" /></button>
           </div>
         )
       })}
