@@ -15,6 +15,70 @@
   padding: 0 max(var(--safe-left), 0px) 0 max(var(--safe-right), 0px);
 }
 
+.camera-controls {
+  position: absolute;
+  top: max(8px, var(--safe-top));
+  right: max(8px, var(--safe-right));
+  z-index: 5;
+  display: flex;
+  gap: 8px;
+}
+
+.camera-controls__button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 44px;
+  min-height: 44px;
+  width: auto;
+  padding: 0 10px;
+  border: 1px solid rgb(255 255 255 / 50%);
+  border-radius: 999px;
+  color: #fff;
+  background: rgb(0 0 0 / 78%);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.camera-controls__button:disabled {
+  opacity: 0.55;
+}
+
+.camera-countdown {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.camera-countdown > span {
+  color: rgb(255 255 255 / 80%);
+  font-size: clamp(72px, 22vmin, 150px);
+  line-height: 1;
+  font-weight: 750;
+  -webkit-text-stroke: 2px rgb(0 0 0 / 75%);
+  text-shadow: 0 2px 14px #000, 0 0 3px #000;
+  font-variant-numeric: tabular-nums;
+}
+
+.shutter__cancel {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background: var(--bg);
+}
+
+.camera-screen-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #fff;
+  pointer-events: none;
+}
+
 /* --- Album picker --------------------------------------------------------- */
 
 .sheet-layer {
