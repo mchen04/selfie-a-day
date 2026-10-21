@@ -1,4 +1,6 @@
+import { useEffect } from 'react'
 import { useServiceWorker } from '../pwa/useServiceWorker.ts'
+import { usePushSync } from '../push/usePushSync.ts'
 import { CaptureScreen } from './screens/CaptureScreen.tsx'
 import { UndoTrash } from './components/UndoTrash.tsx'
 import { AccountScreen } from './account/AccountScreen.tsx'
@@ -7,13 +9,24 @@ import { PhotoScreen } from './screens/PhotoScreen.tsx'
 import { SettingsScreen } from './screens/SettingsScreen.tsx'
 import { TimelineScreen } from './screens/TimelineScreen.tsx'
 import { TrashScreen } from './screens/TrashScreen.tsx'
-import { useRoute } from './router.ts'
+import { navigate, useRoute } from './router.ts'
 import { useApp } from './store-context.ts'
 
 export function App() {
-  const { status, user, storageError } = useApp()
+  const { status, user, storageError, albums, actions } = useApp()
   const route = useRoute()
   const sw = useServiceWorker()
+  usePushSync(status === 'ready' ? user?.id : undefined)
+  const albumLink = new URLSearchParams(window.location.search).get('album')
+
+  useEffect(() => {
+    if (status !== 'ready' || !albumLink || !albums.some((album) => album.id === albumLink && album.deletedAt === null)) return
+    let cancelled = false
+    void actions.selectAlbum(albumLink).then(() => {
+      if (!cancelled && new URLSearchParams(window.location.search).get('album') === albumLink) navigate({ name: 'capture' }, { replace: true })
+    }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [status, albumLink, albums, actions])
 
   // Hold the first paint until settings are known. Rendering onboarding for a
   // frame and then swapping to the camera makes a returning user think their

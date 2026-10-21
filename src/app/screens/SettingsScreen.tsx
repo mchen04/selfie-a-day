@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { CAPTURE_QUALITY_PRESETS } from '../../core/types.ts'
 import { isValidTimeZone } from '../../core/day.ts'
 import { downloadPhotos, saveDownload } from '../../storage/download.ts'
+import { Reminders } from '../../push/Reminders.tsx'
+import { unsubscribeDevice } from '../../push/client.ts'
 import { AlbumPicker } from '../components/AlbumPicker.tsx'
 import { IconBack } from '../components/Icons.tsx'
 import { Toast } from '../components/Toast.tsx'
@@ -36,6 +38,7 @@ export function SettingsScreen() {
         <div className="topbar__title">Settings</div>
       </header>
       <div className="screen__scroll settings">
+        <Reminders albums={albums} onError={(message) => show(message, 'error')} />
         <section className="card stack">
           <button className="album-settings__switch" type="button" onClick={() => setChoosingAlbum(true)} data-testid="settings-album-picker">
             <strong>{activeAlbum.name}</strong><span>Switch album</span>
@@ -85,7 +88,7 @@ export function SettingsScreen() {
           <h2 className="section__title">{user?.username}</h2>
           <button type="button" className="btn" disabled={busy} data-testid="logout" onClick={() => {
             if (pendingIds.length && !window.confirm('Photos are waiting to upload. Logging out deletes them from this device. Log out?')) return
-            void attempt(actions.logout)
+            void attempt(async () => { await unsubscribeDevice(); await actions.logout() })
           }}>Log out</button>
         </section>
       </div>
