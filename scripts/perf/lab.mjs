@@ -10,6 +10,7 @@ import { ENCODINGS, staticHandler, listen } from './serve.mjs'
 import { CAMERA_FIXTURE, launchBrowser, newPage, ready, offlineReady, credentialsState, syntheticImage, completeOnboarding } from './browser.mjs'
 import { summarize } from './summarize.mjs'
 import { regressionChecks } from './regressions.mjs'
+import { prepareAction, actionStamp, savedToastStamp, actionTiming, timelineDecoded, uploadMeasurements } from './measurements.mjs'
 
 export function argumentsFor(args) {
   const { values, positionals } = cli({ target: { type: 'string', multiple: true }, runs: { type: 'string', default: '9' },
@@ -66,24 +67,35 @@ async function capture(session, origin, cloud) {
   const preparation = await completeOnboarding(page)
   if (preparation.mode === 'account') throw new Error('Capture needs a local API and synthetic session')
   session.reset()
+  const shutter = page.getByTestId('shutter')
+  const action = await shutter.evaluate(prepareAction, { testId: 'shutter', savedToast: true })
+  const toastPromise = page.waitForFunction(savedToastStamp, 'shutter').then(async (handle) => {
+    const stamp = await handle.jsonValue()
+    await handle.dispose()
+    return stamp
+  })
   const uploadPromise = cloud ? page.waitForResponse((response) => new URL(response.url()).pathname.match(/^\/api\/photos\/[0-9a-z]{20}$/)
-    && response.request().method() === 'PUT') : null
-  const toastPromise = page.getByTestId('toast').filter({ hasText: /saved/i }).waitFor({ state: 'visible' })
-  const [, upload] = await Promise.all([toastPromise, uploadPromise, page.getByTestId('shutter').click()])
-  let uploadBytes = null
-  if (upload) {
-    const error = await upload.finished()
-    if (error || !upload.ok()) throw new Error(`Capture upload failed (${upload.status()})`)
-    uploadBytes = await upload.request().sizes()
-  }
-  const elapsed = await page.evaluate(() => performance.now() - globalThis.__perf.actions.shutter)
+    && response.request().method() === 'PUT').then(async (response) => {
+    const error = await response.finished()
+    if (error || !response.ok()) throw new Error(`Capture upload failed (${response.status()})`)
+    return { response, stamp: await page.evaluate(actionStamp, action) }
+  }) : null
+  const [saved, uploaded] = await Promise.all([toastPromise, uploadPromise, shutter.click()])
+  const click = await page.evaluate(actionStamp, action)
+  const savedTiming = actionTiming(action, { ...click, ...saved })
+  const uploadedTiming = uploaded ? actionTiming(action, uploaded.stamp) : null
+  const uploadBytes = uploaded ? await uploadMeasurements(session, uploaded.response) : null
   const network = session.network()
-  const metrics = { savedMs: metric(elapsed, 'ms'), transferBytes: metric(network.transferBytes, 'bytes') }
+  const metrics = { savedMs: metric(savedTiming.elapsedMs, 'ms'), transferBytes: metric(network.transferBytes, 'bytes') }
   if (uploadBytes) {
-    metrics.uploadRequestBytes = metric(uploadBytes.requestBodySize, 'bytes')
-    metrics.uploadResponseBytes = metric(uploadBytes.responseBodySize, 'bytes')
+    metrics.uploadedMs = metric(uploadedTiming.elapsedMs, 'ms')
+    metrics.uploadRequestBytes = metric(uploadBytes.requestBytes, 'bytes')
+    metrics.uploadResponseBytes = metric(uploadBytes.responseBytes, 'bytes')
+    if (uploadBytes.parts.masterBytes) metrics.uploadMasterBytes = metric(uploadBytes.parts.masterBytes, 'bytes')
+    if (uploadBytes.parts.thumbBytes) metrics.uploadThumbBytes = metric(uploadBytes.parts.thumbBytes, 'bytes')
   }
   return { status: 'ok', metrics, evidence: { completedOnboarding: !!preparation.completedOnboarding,
+    savedTiming, uploadedTiming, uploadBytes,
     upload: cloud ? 'finished' : 'skipped: local-only build has no upload API', network } }
 }
 
@@ -92,25 +104,16 @@ async function timeline(session, origin) {
   await page.goto(origin, { waitUntil: 'domcontentloaded' })
   await ready(page)
   session.reset()
-  await page.getByTestId('nav-timeline').click()
-  const handle = await page.waitForFunction(async () => {
-    const cells = [...document.querySelectorAll('[data-testid="timeline-cell"]')]
-    if (cells.length !== 60) return false
-    const visible = cells.filter((cell) => {
-      const box = cell.getBoundingClientRect()
-      return box.bottom > 0 && box.top < innerHeight && box.right > 0 && box.left < innerWidth
-    })
-    if (!visible.length) return false
-    const images = visible.map((cell) => cell.querySelector('img'))
-    if (images.some((image) => !image || !image.complete || !image.naturalWidth)) return false
-    await Promise.all(images.map((image) => image.decode()))
-    return { elapsed: performance.now() - globalThis.__perf.actions['nav-timeline'], decoded: images.length }
-  })
+  const button = page.getByTestId('nav-timeline')
+  const action = await button.evaluate(prepareAction, { testId: 'nav-timeline' })
+  await button.click()
+  const handle = await page.waitForFunction(timelineDecoded)
   const result = await handle.jsonValue()
   await handle.dispose()
+  const timing = actionTiming(action, { ...await page.evaluate(actionStamp, action), finishedAt: result.finishedAt })
   const network = session.network()
-  return { status: 'ok', metrics: { readyMs: metric(result.elapsed, 'ms'), transferBytes: metric(network.transferBytes, 'bytes'),
-    requestCount: metric(network.requestCount, 'count') }, evidence: { decodedInViewport: result.decoded, network } }
+  return { status: 'ok', metrics: { readyMs: metric(timing.elapsedMs, 'ms'), transferBytes: metric(network.transferBytes, 'bytes'),
+    requestCount: metric(network.requestCount, 'count') }, evidence: { decodedInViewport: result.decoded, timing, network } }
 }
 
 async function sync(session, origin, count) {
@@ -185,8 +188,10 @@ export async function guardedSample(history, { target, scenario, round }, run) {
   let result
   if (suppressed) result = { status: 'error', reason: first[0].reason, metrics: {} }
   else {
-    try { result = await run() }
-    catch (error) { result = { status: 'error', reason: error.message, metrics: {} } }
+    try {
+      result = await run()
+      validateSample({ ...result, target, scenario, round })
+    } catch (error) { result = { status: 'error', reason: error.message, metrics: {}, evidence: result?.evidence } }
     if (first.length < 2) history.set(key, [...first, { status: result.status, reason: result.reason, round }])
   }
   return { ...result, evidence: { ...result.evidence, executed: !suppressed, loadavg: { before, after: loadavg() },
@@ -262,7 +267,7 @@ export async function main() {
       active = target
       const result = await guardedSample(history, { target: target.name, scenario, round }, () => sample(browser, target, scenario, server.origin, image))
       if (result.status === 'error') process.exitCode = 1
-      const row = validateSample({ target: target.name, scenario, round, order: output.samples.length + 1, ...result })
+      const row = { ...result, target: target.name, scenario, round, order: output.samples.length + 1 }
       output.samples.push(row)
       await jsonFile(outputPath, validateLabOutput(output))
       process.stdout.write(`${target.name} ${scenario} ${round}/${options.runs}: ${row.status}${row.evidence.executed ? '' : ' (not run: repeated failure)'}${row.reason ? ` (${row.reason})` : ''}\n`)

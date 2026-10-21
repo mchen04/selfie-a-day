@@ -75,6 +75,16 @@ Original warm, offline, and capture evidence must show `completedOnboarding: tru
 Original signed-in cold skips because it has no account API. Every other sample must succeed.
 This smoke checks readiness and capture completion. One sample does not establish a performance gain.
 
+For capture, timeline, and snapshot changes, run only these paths:
+
+```sh
+node scripts/perf/lab.mjs --target "original=$PERF_ORIGINAL_DIST" --target "candidate=$PERF_CANDIDATE_DIST,http://127.0.0.1:8787" --encoding br-dynamic --runs 1 --scenario capture --scenario timeline-60 --scenario sync-60 --scenario sync-365 --out /tmp/selfie-perf-capture-timeline-smoke
+node scripts/perf/summarize.mjs /tmp/selfie-perf-capture-timeline-smoke
+```
+
+Candidate capture must report nonzero `uploadRequestBytes`, `savedMs`, and `uploadedMs`.
+Candidate timeline and both snapshot scenarios must run. The original skips API-only scenarios.
+
 ## Frozen A/B comparison
 
 ```sh
@@ -94,6 +104,7 @@ Reports include machine details, Node and browser versions, fixture and image ha
 The harness checks that build files remain unchanged after the run.
 It saves partial results after every sample. Any failed sample sets a nonzero exit code.
 Skips remain visible and never become zero-valued measurements.
+Invalid metrics become error samples with the metric name and value in the reason. Later samples still run.
 If the first two samples of a target/scenario return the same error, remaining samples record that error without running.
 Those rows have `evidence.executed: false` and identify the two failed rounds. Other targets and scenarios continue.
 Every row records `os.loadavg()` before and after the sample, including untimed setup.
@@ -175,12 +186,21 @@ The browser blocks external HTTP traffic through an unused loopback proxy.
 | `cold-signed-in` | New navigation to capture-ready | Session cookie only; no local app storage; service workers blocked |
 | `warm` | Second navigation to capture-ready | First visit completes onboarding and activates the service worker |
 | `offline-warm` | New offline navigation to capture-ready | Online visits warm the app; HTTP cache disabled; SW stays active |
-| `capture` | Shutter click to saved toast and completed upload | Empty account, or original storage after untimed onboarding |
+| `capture` | Shutter click to saved toast; separate time to completed upload | Empty account, or original storage after untimed onboarding |
 | `timeline-60` | Timeline click to decoded thumbnails in the viewport | 60 fixed synthetic photos; service workers blocked |
 | `sync-60`, `sync-365` | Full snapshot fetch to complete response body | 60 or 365 fixed photos; CDP throttle applies |
 
-Navigation `readyMs` uses the browser navigation clock. Action timings start at the actual click event.
-Capture reports no upload metric for the original local-only app and records that reason.
+Navigation `readyMs` uses the browser navigation clock. Action timings use `performance.timeOrigin + performance.now()` at both endpoints.
+The harness arms a click listener directly on the measured button before clicking it.
+If the click mark is missing, it uses the browser timestamp from immediately before the click command.
+Timing evidence names that fallback. It includes Playwright's action checks and command delay, so inspect it before comparing samples.
+`savedMs` ends when the saved toast first appears. A browser mutation observer records that point independently of upload completion.
+`uploadedMs` ends after Playwright confirms the upload response finished, before byte inspection or response parsing.
+These endpoints run independently. The original local-only app reports only `savedMs` and retains its reason for missing upload metrics.
+`uploadRequestBytes` uses Content-Length or complete CDP post data, including multipart framing and metadata.
+Incomplete multipart data never becomes a zero-byte upload. Missing byte counts become error samples.
+`uploadResponseBytes` counts the encoded response body. `uploadMasterBytes` and `uploadThumbBytes` record file sizes when visible.
+The upload response's photo DTO confirms those part sizes. Evidence records each byte count's source.
 Timeline waits for all 60 cells and decodes only thumbnails that intersect the viewport.
 Snapshot time includes network transfer; JSON parsing follows timing. Its decoded `bodyBytes` and compressed wire `transferBytes` differ.
 
@@ -252,4 +272,6 @@ node scripts/perf/lab.mjs --self-check
 
 The self-check validates arguments, rejects bad inputs, checks sample schema, and exercises noise decisions without launching browsers.
 It also checks minified references, delivery totals, readiness modes, onboarding clicks, repeated-error limits, and load reporting.
+Timing fixtures include a missing timeline action mark, invalid metric values, and independent save/upload endpoints.
+Upload fixtures cover multipart byte counts, partial CDP data, header event order, and visible file-part sizes.
 Run builds, browser scenarios, Lighthouse, and actual measurements only on the mini.

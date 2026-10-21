@@ -2,10 +2,11 @@ import assert from 'node:assert/strict'
 import { runInNewContext } from 'node:vm'
 import { JSDOM } from 'jsdom'
 import { references } from './assets.mjs'
-import { firstScreenReady, completeOnboarding } from './browser.mjs'
+import { firstScreenReady, completeOnboarding, newPage } from './browser.mjs'
 import { servedDelivery } from './sizes.mjs'
 import { summarize, markdown } from './summarize.mjs'
-import { envelope } from './common.mjs'
+import { envelope, validateSample, validateLabOutput, SETTINGS } from './common.mjs'
+import { prepareAction, actionStamp, savedToastStamp, actionTiming, timelineDecoded, requestBodyDetails, uploadMeasurements } from './measurements.mjs'
 
 function screen(html) {
   const dom = new JSDOM(html)
@@ -126,5 +127,95 @@ export async function regressionChecks(guardedSample) {
   assert.equal(summary.loadAverages.length, 10); checks++
   assert.equal(summary.tables[0].targets[0].n, 1); checks++
   assert.match(markdown(summary), /4\.70 \/ 6 \/ 7\.60/); checks++
+  for (const value of [NaN, -1, Infinity, undefined]) {
+    const bad = await guardedSample(new Map(), { target: 'candidate', scenario: 'timeline-60', round: 1 }, async () => ({
+      status: 'ok', metrics: { readyMs: { value, unit: 'ms' } },
+    }))
+    assert.equal(bad.status, 'error'); assert.ok(bad.reason.includes(`readyMs: value=${String(value)}`)); checks++
+    assert.deepEqual(bad.metrics, {}); checks++
+    validateSample({ ...bad, target: 'candidate', scenario: 'timeline-60', round: 1 })
+  }
+  const invalidTimeline = await guardedSample(new Map(), { target: 'candidate', scenario: 'timeline-60', round: 1 }, async () => ({
+    status: 'ok', metrics: { readyMs: { value: 300 - ({})['nav-timeline'], unit: 'ms' } },
+  }))
+  const nextSync = await guardedSample(new Map(), { target: 'candidate', scenario: 'sync-60', round: 1 }, async () => ({
+    status: 'ok', metrics: { snapshotMs: { value: 100, unit: 'ms' } },
+  }))
+  assert.equal(nextSync.status, 'ok'); checks++
+  const continued = envelope('lab', { settings: SETTINGS, machine: { hostname: 'synthetic' }, buildMode: 'production', runs: 1,
+    targets: [{ name: 'candidate', build: { sha256: '0'.repeat(64), files: [] } }],
+    samples: [{ ...invalidTimeline, target: 'candidate', scenario: 'timeline-60', round: 1 }, { ...nextSync, target: 'candidate', scenario: 'sync-60', round: 1 }] })
+  assert.equal(validateLabOutput(continued), continued); checks++
+
+  const timeline = screen('<main data-testid="timeline-screen">' + '<button data-testid="timeline-cell"><img></button>'.repeat(60) + '</main>')
+  try {
+    for (const cell of timeline.document.querySelectorAll('[data-testid="timeline-cell"]')) cell.getBoundingClientRect = () => ({ top: 100, bottom: 200, left: 0, right: 120 })
+    for (const image of timeline.document.querySelectorAll('img')) {
+      Object.defineProperty(image, 'complete', { value: true })
+      Object.defineProperty(image, 'naturalWidth', { value: 120 })
+      image.decode = async () => {}
+    }
+    const context = { document: timeline.document, innerHeight: 664, innerWidth: 390, __perf: { actions: {} },
+      performance: { timeOrigin: 1000, now: () => 300 } }
+    const decoded = await runInNewContext(`(${timelineDecoded.toString()})()`, context)
+    const stamp = runInNewContext(`(${actionStamp.toString()})({testId:'nav-timeline'})`, context)
+    const timing = actionTiming({ testId: 'nav-timeline', fallbackAt: 1200 }, { ...stamp, finishedAt: decoded.finishedAt })
+    assert.equal(decoded.decoded, 60); checks++
+    assert.equal(timing.elapsedMs, 100); assert.equal(timing.startSource, 'before-click fallback'); checks++
+    validateSample({ target: 'candidate', scenario: 'timeline-60', round: 1, status: 'ok', metrics: { readyMs: { value: timing.elapsedMs, unit: 'ms' } } }); checks++
+    const clicked = actionTiming({ testId: 'nav-timeline', fallbackAt: 1200 }, { clickAt: 1210, finishedAt: decoded.finishedAt })
+    assert.equal(clicked.elapsedMs, 90); assert.equal(clicked.startSource, 'click'); checks++
+    assert.throws(() => actionTiming({ testId: 'nav-timeline', fallbackAt: 1200 }, { clickAt: 1500, finishedAt: 1300 }), /Invalid action timing/); checks++
+  } finally { timeline.close() }
+
+  const toast = screen('<button data-testid="shutter">Capture</button><div data-testid="toast" style="display:none"></div>')
+  try {
+    let clock = 100
+    const context = { document: toast.document, __perf: { actions: {} }, performance: { timeOrigin: 1000, now: () => clock },
+      MutationObserver: toast.document.defaultView.MutationObserver, getComputedStyle: toast.document.defaultView.getComputedStyle.bind(toast.document.defaultView) }
+    const action = runInNewContext(`(${prepareAction.toString()})(document.querySelector('button'),{testId:'shutter',savedToast:true})`, context)
+    clock = 150
+    toast.document.querySelector('button').click()
+    clock = 300
+    toast.document.querySelector('[data-testid="toast"]').textContent = 'Saved to Selfies'
+    toast.document.querySelector('[data-testid="toast"]').style.display = 'block'
+    await new Promise((resolve) => setImmediate(resolve))
+    const saved = runInNewContext(`(${savedToastStamp.toString()})('shutter')`, context)
+    clock = 900
+    const uploaded = runInNewContext(`(${actionStamp.toString()})({testId:'shutter'})`, context)
+    assert.equal(actionTiming(action, { ...uploaded, ...saved }).elapsedMs, 150); checks++
+    assert.equal(actionTiming(action, uploaded).elapsedMs, 750); checks++
+  } finally { toast.close() }
+
+  const partial = { hasPostData: true, headers: { 'Content-Type': 'multipart/form-data; boundary=synthetic' },
+    postDataEntries: [{ bytes: Buffer.from('headers').toString('base64') }, {}] }
+  assert.equal(requestBodyDetails(partial).requestBytes, null); checks++
+  const full = requestBodyDetails({ ...partial, headers: { ...partial.headers, 'Content-Length': '1048' } })
+  assert.equal(full.requestBytes, 1048); assert.equal(full.requestBytesSource, 'content-length'); checks++
+  const entries = requestBodyDetails({ ...partial, postDataEntries: [{ bytes: Buffer.from('雪').toString('base64') }, { bytes: Buffer.alloc(5).toString('base64') }] })
+  assert.equal(entries.requestBytes, 8); assert.equal(entries.requestBytesSource, 'cdp-postDataEntries'); checks++
+  const listeners = new Map()
+  const cdp = { on(name, callback) { listeners.set(name, callback) }, async send(name) {
+    return name === 'Network.getRequestPostData' ? { postData: 'file bytes omitted', base64Encoded: false } : {}
+  } }
+  const context = { setDefaultTimeout() {}, async addInitScript() {}, async newPage() { return {} }, async newCDPSession() { return cdp } }
+  const session = await newPage({ async newContext() { return context } })
+  for (const extraFirst of [true, false]) {
+    session.reset()
+    const extra = () => listeners.get('Network.requestWillBeSentExtraInfo')({ requestId: 'synthetic', headers: { 'Content-Length': '1048' } })
+    if (extraFirst) extra()
+    listeners.get('Network.requestWillBeSent')({ requestId: 'synthetic', request: { ...partial, url: 'http://127.0.0.1:4319/api/photos/synthetic', method: 'PUT' }, type: 'Fetch' })
+    if (!extraFirst) extra()
+    const body = await session.requestBody('http://127.0.0.1:4319/api/photos/synthetic', 'PUT')
+    assert.equal(body.requestBytes, 1048); checks++
+  }
+  const request = { url: () => 'http://127.0.0.1:4319/api/photos/synthetic', method: () => 'PUT',
+    allHeaders: async () => ({}), sizes: async () => ({ requestBodySize: 0, responseBodySize: 263 }) }
+  const response = { request: () => request, json: async () => ({ photo: { masterBytes: 800, thumbBytes: 40 } }) }
+  const uploaded = await uploadMeasurements(session, response)
+  assert.equal(uploaded.requestBytes, 1048); assert.equal(uploaded.responseBytes, 263); checks++
+  assert.deepEqual(uploaded.parts, { masterBytes: 800, thumbBytes: 40 }); checks++
+  assert.equal(uploaded.requestBytesSource, 'content-length'); checks++
+  await assert.rejects(uploadMeasurements({ requestBody: async () => ({ requestBytes: null }) }, response), /uploadRequestBytes: value=null/); checks++
   return checks
 }

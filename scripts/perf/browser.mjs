@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { randomInt, randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import { ROOT, SETTINGS, localURL } from './common.mjs'
+import { bodyHeaders, requestBodyDetails } from './measurements.mjs'
 
 export const CAMERA_FIXTURE = resolve(process.env.PERF_CAMERA_FIXTURE ?? resolve(ROOT, 'tests/fixtures/alignment-target.y4m'))
 
@@ -26,20 +27,36 @@ export async function newPage(browser, { serviceWorkers = 'block', storageState 
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) globalThis.__perf.longTasks.push({ start: entry.startTime, duration: entry.duration })
     }).observe({ type: 'longtask', buffered: true })
-    document.addEventListener('click', (event) => {
-      const target = event.target.closest?.('[data-testid]')
-      if (target) globalThis.__perf.actions[target.dataset.testid] = performance.now()
-    }, true)
   })
   const page = await context.newPage()
   const cdp = await context.newCDPSession(page)
-  await cdp.send('Network.enable')
+  await cdp.send('Network.enable', { maxPostDataSize: 8 * 1024 * 1024 })
   await cdp.send('Network.emulateNetworkConditions', SETTINGS.network)
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: SETTINGS.cpuSlowdown })
   const requests = new Map()
+  const requestHeaders = new Map()
+  const postData = new Map()
+  cdp.on('Network.requestWillBeSentExtraInfo', (event) => {
+    const headers = bodyHeaders(event.headers)
+    requestHeaders.set(event.requestId, headers)
+    const row = requests.get(event.requestId)
+    if (row && headers.contentLength !== null) Object.assign(row, { requestBytes: headers.contentLength,
+      requestBytesSource: 'content-length', ...headers })
+  })
   cdp.on('Network.requestWillBeSent', (event) => {
-    requests.set(event.requestId, { url: event.request.url, method: event.request.method, type: event.type,
-      requestBytes: event.request.postData ? Buffer.byteLength(event.request.postData) : 0, transferBytes: 0, fromSW: false })
+    const row = { url: event.request.url, method: event.request.method, type: event.type,
+      ...requestBodyDetails(event.request), transferBytes: 0, fromSW: false }
+    const headers = requestHeaders.get(event.requestId)
+    if (headers?.contentLength !== null && headers?.contentLength !== undefined) Object.assign(row, {
+      requestBytes: headers.contentLength, requestBytesSource: 'content-length', ...headers })
+    requests.set(event.requestId, row)
+    if (event.request.hasPostData && row.requestBytes === null) postData.set(event.requestId,
+      cdp.send('Network.getRequestPostData', { requestId: event.requestId }).then((result) => {
+        const bytes = result.base64Encoded ? Buffer.from(result.postData, 'base64').length : Buffer.byteLength(result.postData)
+        row.observedPostDataBytes = bytes
+        if (row.requestBytes === null && !row.contentType?.startsWith('multipart/')) Object.assign(row, {
+          requestBytes: bytes, requestBytesSource: 'cdp-getRequestPostData' })
+      }).catch((error) => { row.postDataReadError = error.message }))
   })
   cdp.on('Network.responseReceived', (event) => {
     const row = requests.get(event.requestId)
@@ -59,7 +76,13 @@ export async function newPage(browser, { serviceWorkers = 'block', storageState 
     if (row) Object.assign(row, { failed: true, error: event.errorText })
   })
   return { context, page, cdp, requests,
-    reset: () => requests.clear(),
+    reset: () => { requests.clear(); requestHeaders.clear(); postData.clear() },
+    requestBody: async (url, method) => {
+      const entry = [...requests].find(([, row]) => row.url === url && row.method === method)
+      if (!entry) return null
+      await postData.get(entry[0])
+      return entry[1]
+    },
     network: () => {
       const rows = [...requests.values()].filter((row) => /^https?:/.test(row.url))
       return { transferBytes: rows.reduce((sum, row) => sum + row.transferBytes, 0), requestCount: rows.length,

@@ -102,9 +102,9 @@ export function validateSample(sample) {
   if (sample.status !== 'ok' && !sample.reason) throw new Error('Missing sample reason')
   if (!sample.metrics || typeof sample.metrics !== 'object') throw new Error('Missing metrics')
   if (sample.status === 'ok' && !Object.keys(sample.metrics).length) throw new Error('Empty successful sample')
-  for (const metric of Object.values(sample.metrics)) {
+  for (const [name, metric] of Object.entries(sample.metrics)) {
     if (!metric || !Number.isFinite(metric.value) || metric.value < 0 || !(metric.unit in USEFUL_GAIN))
-      throw new Error('Invalid metric')
+      throw new Error(`Invalid metric ${name}: value=${String(metric?.value)}, unit=${String(metric?.unit)}`)
   }
   return sample
 }
