@@ -6,10 +6,22 @@ export interface SyntheticAccount { username: string; password: string }
 export const apiOrigin = () => new URL(process.env.E2E_BASE_URL ?? 'http://localhost:4319').origin
 export const mutationHeaders = () => ({ Origin: apiOrigin(), 'X-Selfie-CSRF': '1' })
 
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
+
+/**
+ * Locally, each signup gets its own spoofed client IP so the 10-per-hour signup limit stays out of the way.
+ * A deployed run sends none: Cloudflare answers a workers.dev request carrying both headers with its
+ * error 1000 page (HTML 403) before the Worker runs.
+ */
+function signupIpHeaders(): Record<string, string> {
+  if (!LOCAL_HOSTS.has(new URL(apiOrigin()).hostname)) return {}
+  const ip = `198.18.${randomInt(1, 255)}.${randomInt(1, 255)}`
+  return { 'CF-Connecting-IP': ip, 'X-Forwarded-For': ip }
+}
+
 export async function createAccount(request: APIRequestContext): Promise<SyntheticAccount> {
   const account = { username: `test-${randomUUID().replaceAll('-', '').slice(0, 20)}`, password: randomUUID() + randomUUID() }
-  const ip = `198.18.${randomInt(1, 255)}.${randomInt(1, 255)}`
-  const response = await request.post('/api/auth/signup', { data: account, headers: { ...mutationHeaders(), 'CF-Connecting-IP': ip, 'X-Forwarded-For': ip } })
+  const response = await request.post('/api/auth/signup', { data: account, headers: { ...mutationHeaders(), ...signupIpHeaders() } })
   expect(response.status()).toBe(201)
   await snapshot(request)
   return account
