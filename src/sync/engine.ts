@@ -1,7 +1,7 @@
 import { api, ApiError, cacheThumbnail, photoBlob, requireUser, uploadPhoto, type User } from '../api/client.ts'
 import type { Album, PhotoMeta, StoredImage } from '../core/types.ts'
 import {
-  listGhostRefs, listPending, putGhost, queuePhoto, readSnapshot, removeGhost,
+  clearPendingBackoff, listGhostRefs, listPending, putGhost, queuePhoto, readSnapshot, removeGhost,
   removePending, updatePending, writeSnapshot, type PendingPhoto, type Snapshot,
 } from '../storage/local.ts'
 
@@ -256,9 +256,7 @@ export class SyncEngine {
 
   async retryUploads(): Promise<void> {
     if (this.uploadBlocked) return this.refresh()
-    const write = (async () => {
-      for (const entry of await listPending(this.user.id)) await updatePending({ ...entry, nextAttemptAt: 0 })
-    })()
+    const write = clearPendingBackoff(this.user.id)
     this.writes.add(write)
     try { await write }
     finally { this.writes.delete(write) }

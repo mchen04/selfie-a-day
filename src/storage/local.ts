@@ -61,6 +61,12 @@ export const updatePending = (photo: PendingPhoto) => withTransaction(STORE_OUTB
 export const removePending = (userId: string, id: string) => withTransaction(STORE_OUTBOX, 'readwrite', (tx) => {
   tx.objectStore(STORE_OUTBOX).delete([userId, id])
 })
+/** Retry now. One transaction, so an entry an upload removes meanwhile is not written back. */
+export const clearPendingBackoff = (userId: string) => withTransaction(STORE_OUTBOX, 'readwrite', async (tx) => {
+  const store = tx.objectStore(STORE_OUTBOX)
+  const rows = await promisifyRequest(store.index('by_user').getAll(userId) as IDBRequest<PendingPhoto[]>)
+  for (const row of rows) if (row.userId === userId) store.put({ ...row, nextAttemptAt: 0 })
+})
 
 export const listGhosts = (userId: string) => withTransaction(STORE_GHOSTS, 'readonly', async (tx) => {
   const ghosts = await promisifyRequest(tx.objectStore(STORE_GHOSTS).index('by_user').getAll(userId) as IDBRequest<Ghost[]>)

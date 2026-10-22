@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api, ApiError, photoUrl } from '../../../src/api/client.ts'
 import { SyncEngine } from '../../../src/sync/engine.ts'
-import { listGhosts, listPending, queuePhoto, readSnapshot, writeSnapshot } from '../../../src/storage/local.ts'
+import { listGhosts, listPending, queuePhoto, readSnapshot, removePending, writeSnapshot } from '../../../src/storage/local.ts'
 import { defaultAlbum } from '../../../src/core/albums.ts'
 import { resolveTimer } from '../../../src/camera/preferences.ts'
 import { pending, photo, reply, server } from './fixtures.ts'
@@ -367,6 +367,17 @@ describe('sync', () => {
     await current.retryUploads()
     expect(uploadIds).toEqual([entry.meta.id])
     expect(await listPending('synthetic-a')).toHaveLength(0)
+  })
+  it('does not re-queue a photo whose upload finishes while Retry clears the backoff', async () => {
+    const entry = { ...pending('synthetic-a'), attempts: 1, nextAttemptAt: Number.MAX_SAFE_INTEGER }
+    await queuePhoto(entry)
+    const { uploadIds } = server()
+    const current = engine()
+    await current.hydrate()
+    // An upload in flight removes its entry in the same tick as the Retry tap.
+    await Promise.all([current.retryUploads(), removePending('synthetic-a', entry.meta.id)])
+    expect(uploadIds).toEqual([])
+    expect(await listPending('synthetic-a')).toEqual([])
   })
   it('keeps the same id after a lost upload response', async () => {
     const entry = pending('synthetic-a')
