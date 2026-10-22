@@ -96,6 +96,7 @@ It does not replace Miniflare or browser verification.
 The e2e Worker gets new VAPID keys; the sim derives its pair from a fixed label so every run is the same story.
 Timelapse export checks need `ffprobe` from FFmpeg.
 `production.spec.ts` checks headers and CSP against a deploy; it skips without an HTTPS `E2E_BASE_URL`.
+There it signs up one synthetic account per Playwright project from the runner's own IP, which counts toward the signup limit; delete those accounts afterwards.
 `vite preview` sends no CSP; only `vercel.json` does.
 
 The sim writes `SIM_EVIDENCE_DIR` (default `test-results/sim`): per day `checks`, `requests`, `storage`, `push` and `console` JSON, screenshots and `summary.md`.
