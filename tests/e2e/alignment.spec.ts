@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { computeCoverCrop, FRAME_ASPECT } from '../../src/core/geometry.ts'
 import {
   captureOnce,
-  completeOnboarding,
+  ensureSignedIn,
   dominantChannel,
   evidencePath,
   gotoApp,
@@ -51,7 +51,7 @@ function expectedFramePosition(
 test.describe('coordinate space', () => {
   test.beforeEach(async ({ page }) => {
     await gotoApp(page)
-    await completeOnboarding(page)
+    await ensureSignedIn(page)
     await waitForCameraLive(page)
   })
 
@@ -113,9 +113,7 @@ test.describe('coordinate space', () => {
 
   test('the ghost lines up with the live preview on screen', async ({ page }) => {
     // Grid off so no guide line can land on a sample point.
-    await page.getByTestId('nav-settings').click()
-    await page.getByTestId('settings-grid').getByRole('button', { name: 'Off' }).click()
-    await page.getByTestId('settings-back').click()
+    while (await page.getByTestId('grid-toggle').getAttribute('data-grid') !== 'off') await page.getByTestId('grid-toggle').click()
     await waitForCameraLive(page)
 
     await captureOnce(page)
@@ -208,39 +206,14 @@ test.describe('coordinate space', () => {
   })
 
   /**
-   * Raised independently in all four code-quality cycles. Toggling Mirror is a
-   * viewing preference; it must not split the archive into two mirroring
-   * spaces, because the timelapse would then flip halfway through — the exact
-   * complaint quoted from a real review in docs/research.md.
+   * Toggling Mirror is a viewing preference; it must not split the archive into
+   * two mirroring spaces, because the timelapse would then flip halfway through.
    */
   test('toggling Mirror never splits the library into two spaces', async ({ page }) => {
     await captureOnce(page)
 
     for (let round = 0; round < 3; round++) {
-      // Backdate so each capture lands on a different day.
-      await page.evaluate(async () => {
-        const db = await new Promise<IDBDatabase>((res, rej) => {
-          const req = indexedDB.open('selfie-a-day')
-          req.onsuccess = () => res(req.result)
-          req.onerror = () => rej(req.error ?? new Error('open failed'))
-        })
-        await new Promise<void>((res, rej) => {
-          const tx = db.transaction('photos', 'readwrite')
-          const store = tx.objectStore('photos')
-          const all = store.getAll()
-          all.onsuccess = () => {
-            for (const meta of all.result as { dayKey: string; capturedAt: number }[]) {
-              const d = new Date(meta.capturedAt - 86_400_000 * 40)
-              meta.capturedAt = d.getTime()
-              meta.dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-              store.put(meta)
-            }
-          }
-          tx.oncomplete = () => res()
-          tx.onerror = () => rej(tx.error ?? new Error('write failed'))
-        })
-        db.close()
-      })
+      await page.clock.setFixedTime(new Date(Date.parse('2027-01-10T12:00:00Z') + round * 86_400_000))
 
       // Flip the setting, then capture again.
       await page.getByTestId('nav-settings').click()
@@ -283,20 +256,5 @@ test.describe('coordinate space', () => {
         `frame is ${box!.width.toFixed(1)}x${box!.height.toFixed(1)} at viewport ${size.width}x${size.height}`,
       ).toBeCloseTo(FRAME_ASPECT, 2)
     }
-  })
-
-  /**
-   * The CSS custom property and the capture maths must be the same number. They
-   * used to be declared independently, which is a silent route to the preview
-   * and the saved photo having different crops.
-   */
-  test('the CSS frame aspect is derived from the capture constant', async ({ page }) => {
-    const cssValue = await page.evaluate(() =>
-      getComputedStyle(document.documentElement).getPropertyValue('--frame-aspect').trim(),
-    )
-    expect(Number(cssValue)).toBeCloseTo(FRAME_ASPECT, 6)
-
-    const frame = (await page.getByTestId('capture-frame').boundingBox())!
-    expect(frame.width / frame.height).toBeCloseTo(FRAME_ASPECT, 2)
   })
 })

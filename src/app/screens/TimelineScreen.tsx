@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { dayKeyToDate, formatDayLabel } from '../../core/day.ts'
 import type { PhotoMeta } from '../../core/types.ts'
 import { AlbumPicker } from '../components/AlbumPicker.tsx'
+import { CloudStatus } from '../components/cloud/CloudStatus.tsx'
 import { IconBack, IconCamera, IconChevronDown, IconPlay } from '../components/Icons.tsx'
 import { Playback } from '../components/Playback.tsx'
 import { goBack, useNavigate } from '../router.ts'
@@ -95,6 +96,7 @@ export function TimelineScreen() {
           </button>
         ) : null}
       </header>
+      <CloudStatus />
 
       <div className="screen__scroll">
         {status === 'loading' ? (
@@ -166,20 +168,25 @@ function Thumb({ meta }: { meta: PhotoMeta }) {
   const ref = useRef<HTMLDivElement | null>(null)
   const near = useNearViewport(ref)
   const image = useStoredImage(meta.id, 'thumb', near)
+  const { pendingIds } = useApp()
 
   return (
     <div className="cell__media" ref={ref}>
       {image.url ? (
         <img
+          width={meta.width}
+          height={meta.height}
           src={image.url}
           alt={formatDayLabel(meta.dayKey)}
           loading="lazy"
           decoding="async"
           draggable={false}
+          onError={image.onError}
         />
       ) : (
         <span className="cell__placeholder" aria-hidden="true" />
       )}
+      {pendingIds.includes(meta.id) ? <span className="upload-badge">Uploading</span> : null}
     </div>
   )
 }

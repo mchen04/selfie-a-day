@@ -63,23 +63,6 @@ export function computeCoverCrop(
 }
 
 /**
- * Map a point in *frame space* — normalised (0,0) top-left to (1,1) bottom-right
- * of what the user sees — back to a pixel in the source image.
- *
- * `mirrored` describes the preview: a mirrored preview shows the user their
- * reflection, so frame-x runs opposite to source-x.
- */
-export function frameToSource(
-  u: number,
-  v: number,
-  crop: CoverCrop,
-  mirrored: boolean,
-): { x: number; y: number } {
-  const uu = mirrored ? 1 - u : u
-  return { x: crop.sx + uu * crop.sw, y: crop.sy + v * crop.sh }
-}
-
-/**
  * Output pixel dimensions for a capture at a given long-edge budget, rounded to
  * even numbers so encoders never disagree about chroma subsampling.
  */

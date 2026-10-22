@@ -3,26 +3,31 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Local-first daily selfie PWA with ghost-overlay alignment. Photos never leave the device.",
+  "description": "Daily photos with ghost alignment and private account sync.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --port 4319",
-    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p worker/tsconfig.json",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "verify": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "test:ux": "playwright test -c playwright.ux.config.ts",
+    "sim": "playwright test -c playwright.sim.config.ts",
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run test:worker && npm run build",
     "verify:full": "npm run verify && npm run test:e2e",
     "fixtures": "node scripts/make-fixtures.mjs",
-    "icons": "node scripts/make-icons.mjs"
+    "icons": "node scripts/make-icons.mjs",
+    "dev:api": "node worker/scripts/local-api.mjs",
+    "test:worker": "vitest run --config worker/vitest.config.ts"
   },
   "dependencies": {
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "5.20261021.1",
     "@eslint/js": "^9.39.0",
     "@playwright/test": "^1.62.1",
     "@types/node": "^22.18.0",
@@ -43,6 +48,7 @@
     "workbox-core": "^7.4.1",
     "workbox-precaching": "^7.4.1",
     "workbox-routing": "^7.4.1",
-    "workbox-window": "^7.4.1"
+    "workbox-window": "^7.4.1",
+    "wrangler": "4.151.3"
   }
 }

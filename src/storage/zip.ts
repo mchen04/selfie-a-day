@@ -1,11 +1,8 @@
 /**
- * A minimal ZIP writer and reader, stored (uncompressed) only.
+ * A minimal ZIP writer, stored (uncompressed) only.
  *
- * Export produces a real `.zip` the user can open in Finder or Explorer and see
- * their photos as ordinary dated JPEGs. That matters more than it sounds: the
- * loudest complaint about every app in this category is photos being stranded
- * inside an app that stopped working. A backup that is useless without the app
- * that wrote it is not a backup.
+ * Download my photos produces a real `.zip` the user can open in Finder or
+ * Explorer and see their photos as ordinary dated JPEGs, without this app.
  *
  * Stored, not deflated, because JPEG/WebP bytes do not compress further — the
  * CPU cost would buy roughly nothing and would risk stalling the main thread on
@@ -127,7 +124,7 @@ export function createZip(entries: readonly ZipEntry[]): Blob {
     offset += header.length + size
 
     if (offset > MAX_TOTAL_BYTES) {
-      throw new ZipError('Backup exceeds the 4 GB limit of a standard ZIP.')
+      throw new ZipError('The download exceeds the 4 GB limit of a standard ZIP.')
     }
   }
 
@@ -141,156 +138,4 @@ export function createZip(entries: readonly ZipEntry[]): Blob {
   eview.setUint32(16, offset, true)
 
   return new Blob([...parts, ...central, eocd], { type: 'application/zip' })
-}
-
-/** Read a stored-method ZIP into name -> bytes. */
-export function readZip(bytes: Bytes): Map<string, Bytes> {
-  try {
-    return readZipUnchecked(bytes)
-  } catch (err) {
-    // DataView reads past the end throw RangeError. A user handed a truncated
-    // file deserves "the backup file is damaged", not a stack trace.
-    if (err instanceof RangeError) {
-      throw new ZipError('This ZIP is incomplete or damaged — the file may not have finished copying.')
-    }
-    throw err
-  }
-}
-
-function readZipUnchecked(bytes: Bytes): Map<string, Bytes> {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-
-  let eocd = -1
-  const earliest = Math.max(0, bytes.length - EOCD_SIZE - 0xffff)
-  for (let i = bytes.length - EOCD_SIZE; i >= earliest; i--) {
-    if (view.getUint32(i, true) === EOCD_SIG) {
-      eocd = i
-      break
-    }
-  }
-  if (eocd < 0) throw new ZipError('Not a ZIP file: end-of-archive record missing.')
-
-  const count = view.getUint16(eocd + 10, true)
-  let pointer = view.getUint32(eocd + 16, true)
-  const decoder = new TextDecoder()
-  const out = new Map<string, Bytes>()
-
-  for (let i = 0; i < count; i++) {
-    if (pointer + 46 > bytes.length || view.getUint32(pointer, true) !== CENTRAL_SIG) {
-      throw new ZipError(`Corrupt ZIP: bad directory entry ${i + 1} of ${count}.`)
-    }
-    const method = view.getUint16(pointer + 10, true)
-    const compressedSize = view.getUint32(pointer + 20, true)
-    const nameLength = view.getUint16(pointer + 28, true)
-    const extraLength = view.getUint16(pointer + 30, true)
-    const commentLength = view.getUint16(pointer + 32, true)
-    const localOffset = view.getUint32(pointer + 42, true)
-    const name = decoder.decode(bytes.subarray(pointer + 46, pointer + 46 + nameLength))
-
-    if (method !== 0) {
-      throw new ZipError(`"${name}" is compressed; this backup reader only supports stored entries.`)
-    }
-    if (view.getUint32(localOffset, true) !== LOCAL_SIG) {
-      throw new ZipError(`Corrupt ZIP: "${name}" has no local header.`)
-    }
-
-    const localNameLength = view.getUint16(localOffset + 26, true)
-    const localExtraLength = view.getUint16(localOffset + 28, true)
-    const start = localOffset + 30 + localNameLength + localExtraLength
-    const data = bytes.subarray(start, start + compressedSize)
-
-    const expectedCrc = view.getUint32(pointer + 16, true)
-    if (crc32(data) !== expectedCrc) {
-      throw new ZipError(`"${name}" failed its checksum — the backup file is damaged.`)
-    }
-
-    out.set(name, data)
-    pointer += 46 + nameLength + extraLength + commentLength
-  }
-
-  return out
-}
-
-export interface ZipIndexEntry {
-  name: string
-  /** Offset of this entry's local file header within the archive. */
-  localOffset: number
-  size: number
-  crc: number
-}
-
-/**
- * Read only the central directory, from the end of the archive.
- *
- * A ZIP's index lives at the tail, so an archive of any size can be catalogued
- * from a few kilobytes. That is what lets a restore stream: the caller pulls one
- * photo at a time instead of materialising a multi-hundred-megabyte backup —
- * the same failure `exportBackup` was rewritten to avoid, and the reason import
- * must not be left as its asymmetric twin.
- */
-export async function readZipIndex(archive: Blob): Promise<ZipIndexEntry[]> {
-  const tailLength = Math.min(archive.size, EOCD_SIZE + 0xffff)
-  const tail = new Uint8Array(await archive.slice(archive.size - tailLength).arrayBuffer())
-  const tailView = new DataView(tail.buffer, tail.byteOffset, tail.byteLength)
-
-  let eocd = -1
-  for (let i = tail.length - EOCD_SIZE; i >= 0; i--) {
-    if (tailView.getUint32(i, true) === EOCD_SIG) {
-      eocd = i
-      break
-    }
-  }
-  if (eocd < 0) throw new ZipError('Not a ZIP file: end-of-archive record missing.')
-
-  const count = tailView.getUint16(eocd + 10, true)
-  const directorySize = tailView.getUint32(eocd + 12, true)
-  const directoryOffset = tailView.getUint32(eocd + 16, true)
-
-  const directory = new Uint8Array(
-    await archive.slice(directoryOffset, directoryOffset + directorySize).arrayBuffer(),
-  )
-  const view = new DataView(directory.buffer, directory.byteOffset, directory.byteLength)
-  const decoder = new TextDecoder()
-  const entries: ZipIndexEntry[] = []
-
-  let pointer = 0
-  for (let i = 0; i < count; i++) {
-    if (pointer + 46 > directory.length || view.getUint32(pointer, true) !== CENTRAL_SIG) {
-      throw new ZipError(`Corrupt ZIP: bad directory entry ${i + 1} of ${count}.`)
-    }
-    const method = view.getUint16(pointer + 10, true)
-    const nameLength = view.getUint16(pointer + 28, true)
-    const name = decoder.decode(directory.subarray(pointer + 46, pointer + 46 + nameLength))
-    if (method !== 0) {
-      throw new ZipError(`"${name}" is compressed; this backup reader only supports stored entries.`)
-    }
-    entries.push({
-      name,
-      crc: view.getUint32(pointer + 16, true),
-      size: view.getUint32(pointer + 20, true),
-      localOffset: view.getUint32(pointer + 42, true),
-    })
-    pointer +=
-      46 + nameLength + view.getUint16(pointer + 30, true) + view.getUint16(pointer + 32, true)
-  }
-
-  return entries
-}
-
-/** Read and verify a single entry's bytes, without touching the rest. */
-export async function readZipEntry(archive: Blob, entry: ZipIndexEntry): Promise<Bytes> {
-  const header = new Uint8Array(
-    await archive.slice(entry.localOffset, entry.localOffset + 30).arrayBuffer(),
-  )
-  const view = new DataView(header.buffer, header.byteOffset, header.byteLength)
-  if (view.getUint32(0, true) !== LOCAL_SIG) {
-    throw new ZipError(`Corrupt ZIP: "${entry.name}" has no local header.`)
-  }
-
-  const start = entry.localOffset + 30 + view.getUint16(26, true) + view.getUint16(28, true)
-  const data = new Uint8Array(await archive.slice(start, start + entry.size).arrayBuffer())
-  if (crc32(data) !== entry.crc) {
-    throw new ZipError(`"${entry.name}" failed its checksum — the backup file is damaged.`)
-  }
-  return data
 }

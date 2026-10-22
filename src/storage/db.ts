@@ -1,86 +1,21 @@
-/**
- * IndexedDB access and the schema migration ladder.
- *
- * Storage layout — stores split by read cost rather than by entity:
- *
- *   photos   metadata only, ~150 bytes each. The timeline reads all of it.
- *   thumbs   small previews, read lazily per visible cell.
- *   masters  full-size bytes, read only for a single photo, the ghost, or export.
- *   albums   tiny records that define independent daily journeys.
- *
- * A capture writes all three inside one transaction, so a photo is either fully
- * present or fully absent; there is no state where the timeline shows a cell
- * that cannot be opened.
- */
-
-import { defaultAlbum } from '../core/albums.ts'
-import { DEFAULT_ALBUM_ID, SCHEMA_VERSION, type PhotoMeta } from '../core/types.ts'
-
 export const DB_NAME = 'selfie-a-day'
-export const DB_VERSION = 2
-
-export const STORE_PHOTOS = 'photos'
-export const STORE_THUMBS = 'thumbs'
-export const STORE_MASTERS = 'masters'
-export const STORE_META = 'meta'
-export const STORE_ALBUMS = 'albums'
-
-export const INDEX_DAY = 'by_day'
-export const INDEX_CAPTURED_AT = 'by_capturedAt'
-export const INDEX_ALBUM_DAY = 'by_album_day'
-export const INDEX_ALBUM_CREATED_AT = 'by_album_createdAt'
+const DB_VERSION = 3
+export const STORE_META = 'kv'
+export const STORE_OUTBOX = 'outbox'
+export const STORE_GHOSTS = 'ghosts'
 
 /**
- * Migration `i` upgrades a database at version `i` to version `i + 1`.
- * Never edit a shipped entry — append a new one. An installed PWA can be many
- * versions behind, and the ladder is the only thing that gets it home.
+ * Versions 1 and 2 held the local-only library, which the account's server copy
+ * replaces, so opening version 3 drops every store and starts the account cache
+ * empty. A version 4 must migrate from 3 instead: the outbox holds unsent photos.
  */
-type Migration = (db: IDBDatabase, tx: IDBTransaction) => void
-
-const MIGRATIONS: readonly Migration[] = [
-  // 0 -> 1: initial schema.
-  (db) => {
-    const photos = db.createObjectStore(STORE_PHOTOS, { keyPath: 'id' })
-    // Non-unique on purpose: one photo per day is a product rule enforced in the
-    // repository, not a schema rule. Keeping it loose leaves room to allow more
-    // than one per day later without a destructive migration.
-    photos.createIndex(INDEX_DAY, 'dayKey', { unique: false })
-    photos.createIndex(INDEX_CAPTURED_AT, 'capturedAt', { unique: false })
-
-    db.createObjectStore(STORE_THUMBS, { keyPath: 'id' })
-    db.createObjectStore(STORE_MASTERS, { keyPath: 'id' })
-    db.createObjectStore(STORE_META)
-  },
-  // 1 -> 2: split the original single timeline into a default album.
-  (db, tx) => {
-    const albums = db.createObjectStore(STORE_ALBUMS, { keyPath: 'id' })
-    albums.createIndex(INDEX_ALBUM_CREATED_AT, 'createdAt', { unique: false })
-    albums.put(defaultAlbum())
-
-    const photos = tx.objectStore(STORE_PHOTOS)
-    photos.createIndex(INDEX_ALBUM_DAY, ['albumId', 'dayKey'], { unique: false })
-
-    const request = photos.openCursor()
-    request.onsuccess = () => {
-      const cursor = request.result
-      if (!cursor) return
-      const previous = cursor.value as Partial<PhotoMeta>
-      cursor.update({
-        ...previous,
-        albumId: DEFAULT_ALBUM_ID,
-        timeZone: null,
-        deletedAt: null,
-        schema: SCHEMA_VERSION,
-      })
-      cursor.continue()
-    }
-  },
-]
-
-if (MIGRATIONS.length !== DB_VERSION) {
-  throw new Error(
-    `Schema ladder is inconsistent: DB_VERSION=${DB_VERSION} but ${MIGRATIONS.length} migrations exist.`,
-  )
+function upgrade(db: IDBDatabase): void {
+  for (const name of [...db.objectStoreNames]) db.deleteObjectStore(name)
+  db.createObjectStore(STORE_META)
+  db.createObjectStore(STORE_OUTBOX, { keyPath: ['userId', 'meta.id'] }).createIndex('by_user', 'userId')
+  const ghosts = db.createObjectStore(STORE_GHOSTS, { keyPath: ['userId', 'albumId'] })
+  ghosts.createIndex('by_user', 'userId')
+  ghosts.createIndex('by_image', ['userId', 'image.id'])
 }
 
 export class StorageUnavailableError extends Error {
@@ -102,7 +37,7 @@ function describeStorageError(value: unknown, fallback: string): Error {
   const name = value instanceof DOMException || value instanceof Error ? value.name : ''
   if (name === 'QuotaExceededError') {
     return new StorageFullError(
-      'This device is out of space for photos. Export a backup, then delete a few older photos to make room.',
+      'This device is out of space for photos. Free some space, then try again.',
     )
   }
   return toError(value, fallback)
@@ -125,21 +60,7 @@ export function indexedDBAvailable(): boolean {
   }
 }
 
-/**
- * Open a database at `version`, climbing the ladder from whatever version is
- * already on disk.
- *
- * Parameterised rather than hard-wired so tests can exercise a real upgrade —
- * write at version N, reopen at N+1 with an extra rung, and prove the photos
- * are still there. An upgrade path that has never actually been run is a claim,
- * not a guarantee, and this is the one code path where being wrong costs a user
- * their entire history.
- */
-export function openDatabase(
-  name: string,
-  version: number,
-  migrations: readonly Migration[],
-): Promise<IDBDatabase> {
+function openDatabase(): Promise<IDBDatabase> {
   return new Promise<IDBDatabase>((resolve, reject) => {
     if (!indexedDBAvailable()) {
       reject(
@@ -150,18 +71,8 @@ export function openDatabase(
       return
     }
 
-    const request = indexedDB.open(name, version)
-
-    request.onupgradeneeded = (event) => {
-      const db = request.result
-      const tx = request.transaction
-      if (!tx) throw new Error('Upgrade transaction missing')
-      for (let v = event.oldVersion; v < (event.newVersion ?? version); v++) {
-        const migrate = migrations[v]
-        if (!migrate) throw new Error(`No migration from schema version ${v}`)
-        migrate(db, tx)
-      }
-    }
+    const request = indexedDB.open(DB_NAME, DB_VERSION)
+    request.onupgradeneeded = () => upgrade(request.result)
 
     request.onsuccess = () => {
       const db = request.result
@@ -182,15 +93,12 @@ export function openDatabase(
 let dbPromise: Promise<IDBDatabase> | null = null
 
 export function openDB(): Promise<IDBDatabase> {
-  dbPromise ??= openDatabase(DB_NAME, DB_VERSION, MIGRATIONS).catch((err: unknown) => {
+  dbPromise ??= openDatabase().catch((err: unknown) => {
     dbPromise = null
     throw err
   })
   return dbPromise
 }
-
-/** The shipped ladder, exposed so tests can extend it with a future rung. */
-export const SCHEMA_MIGRATIONS = MIGRATIONS
 
 /**
  * Drop the cached connection so the next call opens a fresh one.

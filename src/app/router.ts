@@ -63,7 +63,7 @@ function emit(): void {
 }
 
 function getSnapshot(): string {
-  return window.location.pathname
+  return window.location.pathname + window.location.search
 }
 
 export function navigate(route: Route, options: { replace?: boolean } = {}): void {
@@ -83,7 +83,7 @@ export function goBack(fallback: Route = { name: 'capture' }): void {
 
 export function useRoute(): Route {
   const pathname = useSyncExternalStore(subscribe, getSnapshot, () => '/')
-  return parseRoute(pathname)
+  return parseRoute(pathname.split('?')[0] ?? '/')
 }
 
 /** `navigate` is already stable at module scope; the hook exists for symmetry. */

@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 import { formatDayLabel } from '../../core/day.ts'
-import { formatBytes } from '../../storage/persistence.ts'
+import { CloudStatus } from '../components/cloud/CloudStatus.tsx'
 import { IconBack, IconChevronLeft, IconChevronRight, IconTrash } from '../components/Icons.tsx'
 import { Toast } from '../components/Toast.tsx'
 import { useToast } from '../useToast.ts'
@@ -9,14 +9,13 @@ import { useApp } from '../store-context.ts'
 import { useStoredImage } from '../useStoredImage.ts'
 
 export function PhotoScreen({ id }: { id: string }) {
-  const { metas, actions, status } = useApp()
+  const { metas, actions, status, pendingIds } = useApp()
   const navigate = useNavigate()
   const { toast, show } = useToast()
-  const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   const index = useMemo(() => metas.findIndex((m) => m.id === id), [metas, id])
   const meta = index >= 0 ? metas[index] : undefined
-  const image = useStoredImage(meta?.id, 'master')
+  const image = useStoredImage(meta?.id, 'master', true, false)
 
   // metas is newest-first, so the *next* newer photo is at a lower index.
   const newer = index > 0 ? metas[index - 1] : undefined
@@ -24,20 +23,15 @@ export function PhotoScreen({ id }: { id: string }) {
 
   const onDelete = useCallback(async () => {
     if (!meta) return
-    if (!confirmingDelete) {
-      setConfirmingDelete(true)
-      return
-    }
     try {
       const fallback = newer ?? older
       await actions.trashPhoto(meta.id)
       if (fallback) navigate({ name: 'photo', id: fallback.id }, { replace: true })
       else navigate({ name: 'timeline' }, { replace: true })
     } catch (err) {
-      setConfirmingDelete(false)
       show(err instanceof Error ? err.message : 'That photo could not be moved to Trash.', 'error')
     }
-  }, [actions, confirmingDelete, meta, navigate, newer, older, show])
+  }, [actions, meta, navigate, newer, older, show])
 
   if (status === 'loading') {
     return (
@@ -58,7 +52,7 @@ export function PhotoScreen({ id }: { id: string }) {
         </header>
         <div className="empty" data-testid="photo-missing">
           <p className="empty__title">This photo is no longer here</p>
-          <p className="empty__body muted">It may have been deleted from this device.</p>
+          <p className="empty__body muted">It may have been moved to Trash.</p>
           <button type="button" className="btn" onClick={() => navigate({ name: 'timeline' }, { replace: true })}>
             Back to timeline
           </button>
@@ -87,44 +81,33 @@ export function PhotoScreen({ id }: { id: string }) {
               minute: '2-digit',
             })}
             {' · '}
-            {meta.width}×{meta.height} · {formatBytes(meta.masterBytes)}
+            {meta.width}×{meta.height}
           </span>
         </div>
-        <button
-          type="button"
-          className="iconbtn"
-          data-danger={confirmingDelete}
-          onClick={() => void onDelete()}
-          onBlur={() => setConfirmingDelete(false)}
-          aria-label={confirmingDelete ? 'Confirm move to Trash' : 'Move photo to Trash'}
-          data-testid="photo-delete"
-        >
-          <IconTrash />
-        </button>
       </header>
-
-      {confirmingDelete ? (
-        <div className="banner banner--warn" role="alert" data-testid="delete-confirm">
-          <span>Move this photo to Trash? Tap the bin again to confirm.</span>
-        </div>
-      ) : null}
+      <CloudStatus />
 
       <div className="photo__stage">
-        <div className="frame frame--static">
-          {image.url ? (
-            <img className="frame__still" src={image.url} alt={formatDayLabel(meta.dayKey)} data-testid="photo-image" />
-          ) : image.error ? (
-            <div className="frame__overlay">
-              <p className="frame__overlay-body">{image.error}</p>
-            </div>
-          ) : (
-            <div className="frame__overlay frame__overlay--quiet">
-              <span className="spinner" aria-hidden="true" />
-            </div>
-          )}
+        {/* The frame is absolutely positioned; the well keeps it inside the stage padding. */}
+        <div className="photo__well">
+          <div className="frame frame--static">
+            {pendingIds.includes(meta.id) ? <span className="upload-badge">Uploading</span> : null}
+            {image.url ? (
+              <img width={meta.width} height={meta.height} decoding="async" className="frame__still" src={image.url} alt={formatDayLabel(meta.dayKey)} data-testid="photo-image" />
+            ) : image.error ? (
+              <div className="frame__overlay">
+                <p className="frame__overlay-body">{image.error}</p>
+              </div>
+            ) : (
+              <div className="frame__overlay frame__overlay--quiet">
+                <span className="spinner" aria-hidden="true" />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
+      {/* One bottom bar keeps every photo action under the thumb. */}
       <nav className="photo__nav">
         <button
           type="button"
@@ -134,6 +117,15 @@ export function PhotoScreen({ id }: { id: string }) {
           data-testid="photo-older"
         >
           <IconChevronLeft size={18} /> Older
+        </button>
+        <button
+          type="button"
+          className="btn photo__trash"
+          onClick={() => void onDelete()}
+          aria-label="Move photo to Trash"
+          data-testid="photo-delete"
+        >
+          <IconTrash />
         </button>
         <button
           type="button"

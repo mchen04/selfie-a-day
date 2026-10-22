@@ -1,30 +1,26 @@
-import { dayKeyOf, resolvedTimeZone, timeZoneOffsetMinutes } from '../core/day.ts'
+import { dayKeyOf, resolvedTimeZone } from '../core/day.ts'
 import { computeCoverCrop, FRAME_ASPECT, isFrameSpace, outputSize } from '../core/geometry.ts'
 import { newPhotoId } from '../core/id.ts'
-import {
-  DEFAULT_ALBUM_ID,
-  SCHEMA_VERSION,
-  type CaptureSource,
-  type PhotoMeta,
-  type StoredImage,
-} from '../core/types.ts'
+import { DEFAULT_ALBUM_ID, type PhotoMeta, type StoredImage } from '../core/types.ts'
 import { bestEncodeFormat, canvasToBlob, decodeImage, makeThumbnail, MASTER_QUALITY } from './encode.ts'
+import { timerSeconds } from './preferences.ts'
 
 export interface CaptureOptions {
   longEdge: number
   /** Must equal the mirroring of the preview the user was aligning against. */
   mirrored: boolean
-  source?: CaptureSource
   now?: number
   albumId?: string
   /** IANA timezone used for this album's day boundary. */
   timeZone?: string
+  timerSeconds?: number
 }
 
 export interface CaptureResult {
   meta: PhotoMeta
   master: StoredImage
   thumb: StoredImage
+  timerSeconds: number
 }
 
 export class CaptureError extends Error {
@@ -84,22 +80,18 @@ export async function captureFromSource(
   const thumb = await makeThumbnail(bytes, mime)
 
   return {
+    timerSeconds: timerSeconds(options.timerSeconds),
     meta: {
       id,
       albumId: options.albumId ?? DEFAULT_ALBUM_ID,
       dayKey: dayKeyOf(capturedDate, timeZone),
       capturedAt,
-      timeZone,
-      tzOffsetMinutes: timeZoneOffsetMinutes(capturedDate, timeZone),
       width,
       height,
       mime,
       mirrored: options.mirrored,
-      source: options.source ?? 'camera',
-      masterBytes: bytes.byteLength,
-      thumbBytes: thumb.bytes.byteLength,
+      timerSeconds: timerSeconds(options.timerSeconds),
       deletedAt: null,
-      schema: SCHEMA_VERSION,
     },
     master: { id, mime, width, height, bytes },
     thumb: { id, ...thumb },
@@ -127,7 +119,7 @@ export async function captureFromVideo(
  */
 export async function captureFromFile(
   file: File,
-  options: Omit<CaptureOptions, 'mirrored' | 'source'> & { mirrored?: boolean },
+  options: Omit<CaptureOptions, 'mirrored'> & { mirrored?: boolean },
 ): Promise<CaptureResult> {
   if (!file.type.startsWith('image/')) {
     throw new CaptureError(`"${file.name}" is not an image.`)
@@ -138,7 +130,6 @@ export async function captureFromFile(
     return await captureFromSource(decoded.source, decoded.width, decoded.height, {
       ...options,
       mirrored: options.mirrored ?? false,
-      source: 'file',
     })
   } finally {
     decoded.release()

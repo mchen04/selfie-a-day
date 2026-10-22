@@ -65,14 +65,6 @@ export const IconExport = (p: IconProps) => (
   </Icon>
 )
 
-export const IconImport = (p: IconProps) => (
-  <Icon {...p}>
-    <path d="M12 16V3" />
-    <path d="m7 8 5-5 5 5" />
-    <path d="M4 20h16" />
-  </Icon>
-)
-
 export const IconGhost = (p: IconProps) => (
   <Icon {...p}>
     <path d="M5 20V10a7 7 0 0 1 14 0v10l-2.3-1.8L14.4 20l-2.4-1.8L9.6 20 7.3 18.2z" />
@@ -98,13 +90,6 @@ export const IconAlert = (p: IconProps) => (
   <Icon {...p}>
     <path d="M12 3.5 22 20H2z" />
     <path d="M12 9.5v4.5M12 17.2h.01" strokeWidth={2.1} />
-  </Icon>
-)
-
-export const IconShield = (p: IconProps) => (
-  <Icon {...p}>
-    <path d="M12 3 5 6v6c0 4.4 2.9 7.9 7 9 4.1-1.1 7-4.6 7-9V6z" />
-    <path d="m9 12 2 2 4-4.5" />
   </Icon>
 )
 

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { dayKeyToDate } from '../../core/day.ts'
-import { TRASH_RETENTION_MS } from '../../storage/photos.ts'
+const TRASH_RETENTION_MS = 30 * 86_400_000
+import { CloudStatus } from '../components/cloud/CloudStatus.tsx'
 import { IconBack, IconCamera, IconRestore, IconTrash } from '../components/Icons.tsx'
 import { Toast } from '../components/Toast.tsx'
 import { goBack } from '../router.ts'
@@ -98,6 +99,7 @@ export function TrashScreen() {
           </button>
         ) : null}
       </header>
+      <CloudStatus />
 
       <div className="screen__scroll trash-screen">
         <p className="trash-note">
@@ -172,7 +174,7 @@ function TrashItem({
   return (
     <li className="trash-item" data-testid="trash-item">
       <div className="trash-item__photo">
-        {image.url ? <img src={image.url} alt={`${albumName}, ${date}`} /> : null}
+        {image.url ? <img width="72" height="96" loading="lazy" decoding="async" src={image.url} alt={`${albumName}, ${date}`} /> : null}
       </div>
       <div className="trash-item__body">
         <div className="trash-item__copy">

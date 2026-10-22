@@ -1,0 +1,2 @@
+VAPID_PUBLIC_KEY=generated-locally-by-npm-run-dev-api
+VAPID_PRIVATE_KEY=generated-locally-do-not-use-this-placeholder

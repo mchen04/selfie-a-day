@@ -1,0 +1,57 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "selfie-a-day-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "selfie-a-day",
+      "database_id": "10e04f0e-afe0-469a-91e9-9cdc5dfcc894",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "PHOTOS",
+      "bucket_name": "selfie-a-day-photos"
+    }
+  ],
+  "vars": {
+    "ALLOWED_ORIGINS": "https://selfie-a-day.vercel.app",
+    "COOKIE_SECURE": "true",
+    "PUSH_ALLOW_INSECURE_ENDPOINTS": "false",
+    "VAPID_PUBLIC_KEY": "BPHp3K83ofnyI3Y5cJNp8DkzktqZauSBbrSDfj23lwqnn6h9zoY2U0xpRT6KXyRX9FNfShVx6mjZsua7hHAFEIo",
+    "VAPID_SUBJECT": "https://selfie-a-day.vercel.app"
+  },
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  },
+  "env": {
+    "local": {
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "selfie-a-day",
+          "database_id": "10e04f0e-afe0-469a-91e9-9cdc5dfcc894",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "PHOTOS",
+          "bucket_name": "selfie-a-day-photos"
+        }
+      ],
+      "vars": {
+        "ALLOWED_ORIGINS": "http://localhost:5173,http://localhost:4319,http://127.0.0.1:5173,http://127.0.0.1:4319",
+        "COOKIE_SECURE": "false",
+        "PUSH_ALLOW_INSECURE_ENDPOINTS": "true",
+        "VAPID_SUBJECT": "https://selfie-a-day.vercel.app"
+      }
+    }
+  }
+}

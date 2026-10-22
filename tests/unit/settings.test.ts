@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SETTINGS, SCHEMA_VERSION } from '../../src/core/types.ts'
+import { DEFAULT_SETTINGS } from '../../src/core/types.ts'
 import { coerceSettings, loadSettings, saveSettings } from '../../src/storage/settings.ts'
 
 describe('coerceSettings', () => {
@@ -16,12 +16,9 @@ describe('coerceSettings', () => {
       mirrorPreview: false,
       captureLongEdge: 960,
       ghostEnabled: false,
-      onboardingCompleteAt: 1_700_000_000_000,
-      lastExportAt: 1_700_000_100_000,
       activeAlbumId: 'album-0000000001abcdefghij',
-      schema: 1,
     }
-    expect(coerceSettings(stored)).toEqual({ ...stored, schema: SCHEMA_VERSION })
+    expect(coerceSettings({ ...stored, schema: 1 })).toEqual(stored)
   })
 
   it('clamps out-of-range numbers rather than trusting them', () => {
@@ -46,16 +43,7 @@ describe('coerceSettings', () => {
     expect(result.ghostOpacity).toBe(0.6)
   })
 
-  it('treats a corrupt onboarding timestamp as "not yet onboarded"', () => {
-    expect(coerceSettings({ onboardingCompleteAt: 'yesterday' }).onboardingCompleteAt).toBeNull()
-  })
 
-  it('treats a corrupt export timestamp as "never backed up"', () => {
-    // Erring towards "never" means the user gets a backup reminder they may not
-    // need; erring the other way means they silently never get one at all.
-    expect(coerceSettings({ lastExportAt: 'sometime' }).lastExportAt).toBeNull()
-    expect(coerceSettings({}).lastExportAt).toBeNull()
-  })
 })
 
 describe('settings persistence', () => {

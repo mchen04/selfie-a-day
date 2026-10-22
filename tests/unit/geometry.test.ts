@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   computeCoverCrop,
   FRAME_ASPECT,
-  frameToSource,
   isFrameSpace,
   outputSize,
 } from '../../src/core/geometry.ts'
@@ -64,44 +63,6 @@ describe('computeCoverCrop', () => {
     expect(() => computeCoverCrop(0, 720)).toThrow(RangeError)
     expect(() => computeCoverCrop(1280, 0)).toThrow(RangeError)
     expect(() => computeCoverCrop(1280, 720, 0)).toThrow(RangeError)
-  })
-})
-
-describe('frameToSource', () => {
-  const crop = computeCoverCrop(1280, 720, FRAME_ASPECT)
-
-  it('maps frame corners onto the crop corners when unmirrored', () => {
-    expect(frameToSource(0, 0, crop, false)).toEqual({ x: crop.sx, y: crop.sy })
-    expect(frameToSource(1, 1, crop, false)).toEqual({
-      x: crop.sx + crop.sw,
-      y: crop.sy + crop.sh,
-    })
-  })
-
-  it('flips only the horizontal axis when mirrored', () => {
-    const left = frameToSource(0, 0.5, crop, true)
-    const right = frameToSource(1, 0.5, crop, true)
-    expect(left.x).toBeCloseTo(crop.sx + crop.sw, 9)
-    expect(right.x).toBeCloseTo(crop.sx, 9)
-    expect(left.y).toBeCloseTo(right.y, 9)
-  })
-
-  it('leaves the centre fixed under mirroring', () => {
-    // The centre is the one point a mirror cannot move; if this drifts, the
-    // ghost and the preview are in different spaces.
-    const unmirrored = frameToSource(0.5, 0.5, crop, false)
-    const mirrored = frameToSource(0.5, 0.5, crop, true)
-    expect(mirrored.x).toBeCloseTo(unmirrored.x, 9)
-    expect(mirrored.y).toBeCloseTo(unmirrored.y, 9)
-  })
-
-  it('round-trips: mirroring twice returns the original point', () => {
-    for (const u of [0, 0.13, 0.5, 0.87, 1]) {
-      const once = frameToSource(u, 0.3, crop, true)
-      const backU = 1 - u
-      const twice = frameToSource(backU, 0.3, crop, false)
-      expect(once.x).toBeCloseTo(twice.x, 9)
-    }
   })
 })
 

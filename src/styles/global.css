@@ -96,8 +96,7 @@ button,
 
 .row__hint,
 .tiny,
-.frame__overlay-body,
-[data-testid='privacy-statement'] {
+.frame__overlay-body {
   -webkit-user-select: text;
   user-select: text;
 }
@@ -372,6 +371,23 @@ canvas {
   color: var(--faint);
 }
 
+/* WebKit draws a native select at its own 23px height whatever min-height says,
+   so selects drop the native look and draw their own chevron. */
+.select-input {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 30px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    right 17px center,
+    right 12px center;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  text-overflow: ellipsis;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -390,3 +406,36 @@ canvas {
   font-size: 13px;
   line-height: 1.4;
 }
+
+.account {
+  overflow-y: auto;
+  padding: max(28px, var(--safe-top)) max(22px, var(--safe-right)) max(12px, var(--safe-bottom)) max(22px, var(--safe-left));
+  justify-content: space-between;
+  gap: 28px;
+  background: radial-gradient(ellipse at 80% 0, #1c2926 0, transparent 60%), #0a0a0c;
+}
+.account__intro, .account__form { width: 100%; max-width: 360px; margin-inline: auto; }
+.account__intro { padding-top: min(7vh, 48px); }
+.account__intro h1 { font-size: clamp(32px, 9vw, 42px); letter-spacing: -1.8px; line-height: 1.1; margin: 14px 0; }
+.account__intro p { color: var(--muted); font-size: 15px; line-height: 1.5; }
+.account__eyebrow { font-size: 11px !important; text-transform: uppercase; letter-spacing: 1.5px; }
+.account__mark { position: relative; height: 48px; margin-bottom: 24px; }
+.account__mark span { display: block; position: absolute; width: 42px; height: 48px; border: 2px solid #b6ddc5; border-radius: 50%; }
+.account__mark span:first-child { transform: translateX(14px); opacity: .3; }
+.account__form { display: flex; flex-direction: column; gap: 14px; }
+.account__form h2 { font-size: 18px; font-weight: 500; margin: 0 0 4px; }
+.account__form .text-input { width: 100%; min-height: 48px; font-size: 16px; }
+.account__switch { min-height: 44px; color: #b6ddc5; background: none; border: 0; font: inherit; font-size: 14px; }
+.account__form > .tiny { text-align: center; margin: 0; }
+/* In the flow under the topbar, so it never covers a control; the camera screen
+   stacks it in .frame__notices instead. */
+.cloud-status { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; margin: 0 calc(var(--safe-right) + 14px) 6px calc(var(--safe-left) + 14px); padding: 4px 12px; background: #202824f2; border: 1px solid #3a4d41; border-radius: 12px; font-size: 12px; }
+.cloud-status button { pointer-events: auto; min-height: 44px; }
+.cloud-status span { overflow-wrap: anywhere; }
+.upload-badge { position: absolute; left: 4px; top: 4px; border-radius: 5px; padding: 3px 5px; font-size: 10px; background: #0a0a0cbb; color: #fff; }
+.cell__media { position: relative; }
+.download-progress { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.settings__row > .text-input, .settings__row > .select-input { padding-left: 0; border-color: transparent; background-color: transparent; font-size: 16px; text-align: right; text-align-last: right; }
+.settings__row > .text-input:focus { background-color: var(--surface-2); }
+.settings__row > .select-input { color: var(--muted); }
+@media (max-height: 650px) { .account { gap: 18px; } .account__intro { padding-top: 0; } .account__mark { display: none; } }

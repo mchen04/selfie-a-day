@@ -1,18 +1,29 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { captureFromFile, captureFromVideo, type CaptureResult } from '../../camera/capture.ts'
 import { useCamera, type CameraState } from '../../camera/useCamera.ts'
+import { createCaptureFlash, videoTrack } from '../../camera/flash.ts'
+import {
+  cycleTimer,
+  rememberFlash,
+  rememberTimer,
+  timerSeconds,
+  type TimerSeconds,
+} from '../../camera/preferences.ts'
+import { useCameraPreferences } from '../../camera/useCameraPreferences.ts'
+import { useCountdown } from '../../camera/useCountdown.ts'
 import { currentStreak, formatDayLabel } from '../../core/day.ts'
 import {
   IconAlert,
   IconCamera,
   IconChevronDown,
+  IconRestore,
   IconSettings,
   IconTimeline,
 } from '../components/Icons.tsx'
-import { Advice } from '../components/Advice.tsx'
 import { AlbumPicker } from '../components/AlbumPicker.tsx'
-import { chooseAdvice, type AdviceKind } from '../advice.ts'
 import { CaptureFrame } from '../components/CaptureFrame.tsx'
+import { CameraControls } from '../components/camera/CameraControls.tsx'
+import { CloudStatus } from '../components/cloud/CloudStatus.tsx'
 import { GhostControls } from '../components/GhostControls.tsx'
 import { Toast } from '../components/Toast.tsx'
 import { useToast } from '../useToast.ts'
@@ -37,12 +48,16 @@ export function CaptureScreen() {
 
   const camera = useCamera(settings.captureLongEdge)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const busyRef = useRef(false)
   const [busy, setBusy] = useState(false)
-  const [flash, setFlash] = useState(false)
+  const [feedback, setFeedback] = useState(false)
+  const [exposure] = useState(createCaptureFlash)
+  const screenFlash = useSyncExternalStore(exposure.subscribe, exposure.getSnapshot)
   const [choosingAlbum, setChoosingAlbum] = useState(false)
-  const [dismissed, setDismissed] = useState<ReadonlySet<AdviceKind>>(() => new Set())
 
   const latest = metas[0] ?? null
+  const preferences = useCameraPreferences(activeAlbum.id, latest)
+  const countdown = useCountdown(activeAlbum.id, camera.state === 'live', exposure.cancel)
   const { today, timeZone: albumTimeZone } = useCurrentDay(activeAlbum.timeZone)
   const todayDone = metas.some((meta) => meta.dayKey === today)
   const streak = currentStreak(
@@ -59,8 +74,7 @@ export function CaptureScreen() {
    * It follows the library, not the Mirror setting. Mirroring the preview is a
    * *viewing* preference; letting it change the stored space means toggling it
    * mid-project leaves a library in two spaces and a timelapse that flips
-   * left-to-right at the boundary — the failure this app exists to prevent,
-   * quoted from a real review in docs/research.md.
+   * left-to-right at the boundary — the failure this app exists to prevent.
    *
    * Alignment is unaffected: the ghost is rendered into whatever space the
    * preview is in, so the user still lines up against what they see, and the
@@ -72,6 +86,12 @@ export function CaptureScreen() {
   const usingFileFallback = camera.capabilities.path === 'file'
   const needsStart = !usingFileFallback && NEEDS_START.has(camera.state)
 
+  useEffect(() => {
+    if (!feedback) return
+    const timeout = setTimeout(() => setFeedback(false), 220)
+    return () => clearTimeout(timeout)
+  }, [feedback])
+
   // First mount only. Later resumes are handled inside useCamera, which decides
   // between an automatic restart and asking for a tap.
   useEffect(() => {
@@ -82,6 +102,7 @@ export function CaptureScreen() {
   const persist = useCallback(
     async (result: CaptureResult) => {
       await actions.savePhoto(result)
+      rememberTimer(activeAlbum.id, timerSeconds(result.timerSeconds), result.meta.capturedAt)
       const nextStreak = currentStreak([result.meta.dayKey, ...metas.map((m) => m.dayKey)], today)
       show(
         nextStreak > 1
@@ -90,60 +111,76 @@ export function CaptureScreen() {
         'success',
       )
     },
-    [actions, activeAlbum.name, metas, show, today],
+    [actions, activeAlbum.id, activeAlbum.name, metas, show, today],
   )
 
-  const capture = useCallback(async () => {
-    if (busy) return
-
-    if (usingFileFallback) {
-      fileInputRef.current?.click()
-      return
-    }
-
-    // A tap on a stopped camera means "start", not "take a photo" — and being
-    // inside that gesture is exactly what stops iOS re-prompting.
-    if (needsStart) {
-      void camera.start()
-      return
-    }
-
+  const takePhoto = useCallback(async (seconds: TimerSeconds) => {
+    if (busyRef.current || document.visibilityState === 'hidden') return
     const video = camera.videoRef.current
     if (!video || camera.state !== 'live') {
       show('The camera is not ready yet.', 'error')
       return
     }
 
-    const capturedAt = Date.now()
+    busyRef.current = true
     setBusy(true)
-    setFlash(true)
     try {
-      const result = await captureFromVideo(video, {
-        longEdge: settings.captureLongEdge,
-        mirrored: storageMirrored,
-        albumId: activeAlbum.id,
-        timeZone: albumTimeZone,
-        now: capturedAt,
-      })
-      await persist(result)
+      const result = await exposure.capture(
+        videoTrack(video),
+        preferences.flash === 'on',
+        true,
+        () => {
+          setFeedback(true)
+          return captureFromVideo(video, {
+            longEdge: settings.captureLongEdge,
+            mirrored: storageMirrored,
+            albumId: activeAlbum.id,
+            timeZone: albumTimeZone,
+            now: Date.now(),
+            timerSeconds: seconds,
+          })
+        },
+        () => show('Flash is unavailable. Your photo still saves.'),
+      )
+      if (result) await persist(result)
     } catch (err) {
       show(err instanceof Error ? err.message : 'The photo could not be saved.', 'error')
     } finally {
+      busyRef.current = false
       setBusy(false)
-      setTimeout(() => setFlash(false), 220)
     }
   }, [
-    busy,
     camera,
     activeAlbum.id,
     albumTimeZone,
-    needsStart,
+    exposure,
+    preferences.flash,
     persist,
     settings.captureLongEdge,
     storageMirrored,
     show,
-    usingFileFallback,
   ])
+
+  const capture = useCallback(() => {
+    if (countdown.remaining !== null) {
+      countdown.cancel()
+      return
+    }
+    if (busyRef.current) return
+    if (usingFileFallback) {
+      fileInputRef.current?.click()
+      return
+    }
+    if (needsStart) {
+      void camera.start()
+      return
+    }
+    if (camera.state !== 'live') {
+      show('The camera is not ready yet.', 'error')
+      return
+    }
+    countdown.press(preferences.seconds, () => void takePhoto(preferences.seconds))
+  }, [camera, countdown, needsStart, preferences.seconds, show, takePhoto, usingFileFallback])
 
   const onFilePicked = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -151,8 +188,10 @@ export function CaptureScreen() {
       // Reset immediately so picking the same file twice still fires a change.
       event.target.value = ''
       if (!file) return
+      if (busyRef.current) return
 
       const capturedAt = Date.now()
+      busyRef.current = true
       setBusy(true)
       try {
         // Store in the same space as a live capture. A library that mixes
@@ -164,11 +203,13 @@ export function CaptureScreen() {
           albumId: activeAlbum.id,
           timeZone: albumTimeZone,
           now: capturedAt,
+          timerSeconds: 0,
         })
         await persist(result)
       } catch (err) {
         show(err instanceof Error ? err.message : 'That photo could not be used.', 'error')
       } finally {
+        busyRef.current = false
         setBusy(false)
       }
     },
@@ -181,16 +222,15 @@ export function CaptureScreen() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== ' ' && event.key !== 'Enter') return
+      if (event.repeat) return
       const target = event.target as HTMLElement | null
       if (target && ['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'A'].includes(target.tagName)) return
       event.preventDefault()
-      void capture()
+      capture()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [capture])
-
-  const advice = chooseAdvice({ metas: allMetas, settings, dismissed })
 
   const progress =
     streak > 0
@@ -199,13 +239,18 @@ export function CaptureScreen() {
         ? `${metas.length} photo${metas.length === 1 ? '' : 's'} so far`
         : 'Day one'
 
-  const shutterLabel = usingFileFallback
-    ? "Take today's photo with the camera app"
-    : needsStart
-      ? 'Start the camera'
-      : todayDone
-        ? "Retake today's photo"
-        : "Take today's photo"
+  const shutterLabel =
+    countdown.remaining !== null
+      ? 'Cancel timer'
+      : usingFileFallback
+        ? todayDone
+          ? "Retake today's photo with the camera app"
+          : "Take today's photo with the camera app"
+        : needsStart
+          ? 'Start the camera'
+          : todayDone
+            ? "Retake today's photo"
+            : "Take today's photo"
 
   return (
     <div className="screen capture" data-testid="capture-screen">
@@ -213,7 +258,10 @@ export function CaptureScreen() {
         <button
           type="button"
           className="topbar__title topbar__album"
-          onClick={() => setChoosingAlbum(true)}
+          onClick={() => {
+            countdown.cancel()
+            setChoosingAlbum(true)
+          }}
           aria-label={`Choose album. ${activeAlbum.name} selected`}
           data-testid="active-album-picker"
         >
@@ -229,7 +277,10 @@ export function CaptureScreen() {
         <button
           type="button"
           className="iconbtn"
-          onClick={() => navigate({ name: 'timeline' })}
+          onClick={() => {
+            countdown.cancel()
+            navigate({ name: 'timeline' })
+          }}
           aria-label="Timeline"
           data-testid="nav-timeline"
         >
@@ -238,7 +289,10 @@ export function CaptureScreen() {
         <button
           type="button"
           className="iconbtn"
-          onClick={() => navigate({ name: 'settings' })}
+          onClick={() => {
+            countdown.cancel()
+            navigate({ name: 'settings' })
+          }}
           aria-label="Settings"
           data-testid="nav-settings"
         >
@@ -254,10 +308,28 @@ export function CaptureScreen() {
           ghostUrl={settings.ghostEnabled ? ghost.url : null}
           ghostOpacity={settings.ghostOpacity}
           ghostFlipped={ghostFlipped}
-          onTap={() => void capture()}
+          onTap={capture}
           tapLabel={shutterLabel}
         >
-          {flash ? <div className="frame__flash" aria-hidden="true" /> : null}
+          {feedback ? <div className="frame__flash" aria-hidden="true" /> : null}
+
+          <CameraControls
+            seconds={preferences.seconds}
+            flash={preferences.flash}
+            counting={countdown.remaining !== null}
+            busy={busy}
+            available={!usingFileFallback && camera.state === 'live'}
+            onTimer={() => rememberTimer(activeAlbum.id, cycleTimer(preferences.seconds))}
+            onFlash={() => rememberFlash(preferences.flash === 'on' ? 'off' : 'on')}
+          />
+
+          <div className="camera-countdown" role="status" aria-live="polite" aria-atomic="true">
+            {countdown.remaining !== null ? (
+              <span data-testid="countdown" data-seconds={countdown.remaining} aria-label={`${countdown.remaining}`}>
+                {countdown.remaining}
+              </span>
+            ) : null}
+          </div>
 
           <CameraStatus
             state={camera.state}
@@ -268,13 +340,17 @@ export function CaptureScreen() {
             onUseLibrary={() => fileInputRef.current?.click()}
           />
 
-          {latest && settings.ghostEnabled && camera.state === 'live' ? (
-            <p className="frame__hint" data-testid="ghost-hint">
-              {todayDone
-                ? "Lined up with today's photo"
-                : `Line your eyes up with ${formatDayLabel(latest.dayKey).toLowerCase()}`}
-            </p>
-          ) : null}
+          <div className="frame__notices">
+            <Toast toast={toast} />
+            <CloudStatus />
+            {latest && settings.ghostEnabled && camera.state === 'live' ? (
+              <p className="frame__hint" data-testid="ghost-hint">
+                {todayDone
+                  ? "Lined up with today's photo"
+                  : `Line your eyes up with ${formatDayLabel(latest.dayKey).toLowerCase()}`}
+              </p>
+            ) : null}
+          </div>
         </CaptureFrame>
       </div>
 
@@ -285,13 +361,6 @@ export function CaptureScreen() {
         </div>
       ) : null}
 
-      <Advice
-        kind={advice}
-        photoCount={allMetas.length}
-        onBackup={() => navigate({ name: 'settings' })}
-        onDismiss={(kind) => setDismissed((prev) => new Set(prev).add(kind))}
-      />
-
       <div className="capture__controls">
         <GhostControls
           settings={settings}
@@ -300,23 +369,23 @@ export function CaptureScreen() {
         />
 
         <div className="capture__actions">
-          <span className="capture__slot capture__slot--left">
-            {todayDone ? <span className="pill pill--done">Retake</span> : null}
-          </span>
+          <span className="capture__slot capture__slot--left" />
 
           <button
             type="button"
             className="shutter"
-            onClick={() => void capture()}
+            onClick={capture}
             disabled={busy}
             aria-label={shutterLabel}
             data-testid="shutter"
             data-busy={busy}
             data-mode={usingFileFallback ? 'file' : needsStart ? 'start' : 'capture'}
+            data-counting={countdown.remaining !== null}
           >
             <span className="shutter__ring" />
             <span className="shutter__core">
-              {usingFileFallback || needsStart ? <IconCamera size={26} /> : null}
+              {countdown.remaining !== null ? <span className="shutter__cancel" aria-hidden="true" /> : null}
+              {needsStart ? <IconCamera size={26} /> : todayDone && countdown.remaining === null ? <IconRestore size={26} /> : usingFileFallback ? <IconCamera size={26} /> : null}
             </span>
           </button>
 
@@ -341,7 +410,7 @@ export function CaptureScreen() {
         aria-hidden="true"
       />
 
-      <Toast toast={toast} />
+      {screenFlash ? <div className="camera-screen-flash" data-testid="screen-flash" aria-hidden="true" /> : null}
 
       {choosingAlbum ? (
         <AlbumPicker
@@ -376,12 +445,12 @@ function CameraStatus({
 }) {
   if (usingFileFallback) {
     return (
-      <div className="frame__overlay" data-testid="camera-status" data-state="fallback">
+      <div className="frame__overlay frame__overlay--roll" data-testid="camera-status" data-state="fallback">
         <IconCamera size={30} />
         <p className="frame__overlay-title">Camera roll mode</p>
         <p className="frame__overlay-body">
-          {fallbackReason ?? 'This browser cannot show a live preview.'} Tap the shutter to take
-          today&apos;s photo with your phone&apos;s camera instead.
+          {fallbackReason ?? 'This browser cannot show a live preview.'} Tap the shutter to open the
+          camera.
         </p>
       </div>
     )
@@ -425,8 +494,8 @@ function CameraStatus({
           : 'Camera unavailable'
 
   return (
-    <div className="frame__overlay" data-testid="camera-status" data-state={state}>
-      <IconAlert size={28} />
+    <div className="frame__overlay frame__overlay--alert" data-testid="camera-status" data-state={state}>
+      <IconAlert size={24} />
       <p className="frame__overlay-title">{title}</p>
       <p className="frame__overlay-body">{message}</p>
       <div className="frame__overlay-actions">
@@ -437,7 +506,6 @@ function CameraStatus({
           Use a photo instead
         </button>
       </div>
-      <p className="tiny muted frame__overlay-foot">Your photos stay on this device either way.</p>
     </div>
   )
 }

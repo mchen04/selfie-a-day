@@ -1,269 +1,208 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { api, ApiError, onSignedOut, type User } from '../api/client.ts'
 import type { CaptureResult } from '../camera/capture.ts'
-import { defaultAlbum } from '../core/albums.ts'
-import { DEFAULT_SETTINGS, type Album, type PhotoMeta, type Settings } from '../core/types.ts'
-import {
-  createAlbum as createAlbumRecord,
-  ensureDefaultAlbum,
-  listAlbums,
-  updateAlbum as updateAlbumRecord,
-} from '../storage/albums.ts'
-import {
-  deletePhotoPermanently as deletePhotoPermanentlyRecord,
-  emptyTrash as emptyTrashRecords,
-  listMeta,
-  purgeExpiredTrash,
-  putPhoto,
-  restorePhoto as restorePhotoRecord,
-  trashPhoto as trashPhotoRecord,
-} from '../storage/photos.ts'
+import { defaultAlbum, makeAlbum } from '../core/albums.ts'
+import { DEFAULT_SETTINGS, type Album, type Settings } from '../core/types.ts'
+import { cacheUser, cachedUser, clearUserData, forgetCachedUser } from '../storage/local.ts'
 import { loadSettings, saveSettings } from '../storage/settings.ts'
-import { AppContext, type AppContextValue, type AppState } from './store-context.ts'
-
-function activeMetas(allMetas: readonly PhotoMeta[], albumId: string): PhotoMeta[] {
-  return allMetas.filter((meta) => meta.albumId === albumId)
-}
+import { SyncEngine, visiblePhotos, type SyncState } from '../sync/engine.ts'
+import { navigate, parseRoute } from './router.ts'
+import { AppContext, type AppContextValue } from './store-context.ts'
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AppState>({
-    status: 'loading',
-    storageError: null,
-    metas: [],
-    allMetas: [],
-    trashedMetas: [],
-    undoTrash: null,
-    albums: [defaultAlbum()],
-    activeAlbum: defaultAlbum(),
-    settings: DEFAULT_SETTINGS,
-  })
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error' | 'signed-out'>('loading')
+  const [user, setUser] = useState<User | null>(null)
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
+  const [sync, setSync] = useState<SyncState | null>(null)
+  const [storageError, setStorageError] = useState<string | null>(null)
+  const [undoTrash, setUndoTrash] = useState<AppContextValue['undoTrash']>(null)
+  const engine = useRef<SyncEngine | null>(null)
+  const settingsRef = useRef(DEFAULT_SETTINGS)
+  const clearing = useRef<Promise<void> | null>(null)
+  const startup = useRef<AbortController | null>(null)
 
-  /**
-   * The authoritative settings value for writes.
-   *
-   * Persistence must not read its value out of a `setState` updater. React only
-   * runs an updater synchronously on the eager-state path — when the hook has no
-   * queued work — so a second call arriving before the first commits would run
-   * its updater later, and the value written to disk would be whatever the
-   * variable held beforehand. With `DEFAULT_SETTINGS` as that initial value the
-   * failure is silent and severe: `onboardingCompleteAt` goes back to null and
-   * the user is dumped into onboarding on next launch.
-   *
-   * Merging against a ref makes the persisted value deterministic and identical
-   * to the rendered one, and keeps the updater pure.
-   */
-  const settingsRef = useRef<Settings>(DEFAULT_SETTINGS)
+  const clearSession = useCallback(async (discard = false) => {
+    if (clearing.current) return clearing.current
+    const current = engine.current
+    engine.current = null
+    setUser(null)
+    setSync(null)
+    setUndoTrash(null)
+    setStatus('loading')
+    setSettings(DEFAULT_SETTINGS)
+    settingsRef.current = DEFAULT_SETTINGS
+    const task = (async () => {
+      if (current) {
+        await current.stop()
+        if (discard) await clearUserData(current.user.id)
+      }
+      await forgetCachedUser()
+      for (const key of Object.keys(localStorage)) if (key.startsWith('sad.camera.') || key.startsWith('sad.push.')) localStorage.removeItem(key)
+    })()
+    clearing.current = task
+    try { await task; setStatus('signed-out') }
+    catch (error) { setStorageError('Could not clear device storage. Reload to try again.'); setStatus('error'); throw error }
+    finally { if (clearing.current === task) clearing.current = null }
+  }, [])
 
-  const reload = useCallback(async () => {
-    try {
-      await purgeExpiredTrash()
-      const [allMetas, trashedMetas, loadedAlbums, loadedSettings] = await Promise.all([
-        listMeta(),
-        listMeta({ onlyDeleted: true }),
-        listAlbums(),
-        loadSettings(),
-      ])
-      const albums = loadedAlbums.length > 0 ? loadedAlbums : [await ensureDefaultAlbum()]
-      const activeAlbum =
-        albums.find((album) => album.id === loadedSettings.activeAlbumId) ?? albums[0]!
-      const settings =
-        activeAlbum.id === loadedSettings.activeAlbumId
-          ? loadedSettings
-          : { ...loadedSettings, activeAlbumId: activeAlbum.id }
-      settingsRef.current = settings
-      setState({
-        status: 'ready',
-        storageError: null,
-        metas: activeMetas(allMetas, activeAlbum.id),
-        allMetas,
-        trashedMetas,
-        undoTrash: null,
-        albums,
-        activeAlbum,
-        settings,
-      })
-      if (settings !== loadedSettings) await saveSettings(settings)
-    } catch (err) {
-      setState((prev) => ({
-        ...prev,
-        status: 'error',
-        storageError:
-          err instanceof Error ? err.message : 'Photo storage could not be opened on this device.',
-      }))
+  const openAccount = useCallback(async (nextUser: User, session?: ReturnType<typeof api.me>) => {
+    await clearing.current
+    if (engine.current?.user.id === nextUser.id) return
+    const old = engine.current
+    if (old) {
+      setUser(null)
+      setSync(null)
+      setUndoTrash(null)
+      setStatus('loading')
+      await old.stop()
     }
+    const next = new SyncEngine(nextUser, setSync)
+    engine.current = next
+    await cacheUser(nextUser)
+    const prefs = await loadSettings(nextUser.id)
+    if (engine.current !== next) return
+    settingsRef.current = prefs
+    setSettings(prefs)
+    await next.hydrate()
+    if (engine.current !== next) return
+    setUser(nextUser)
+    setStorageError(null)
+    setStatus('ready')
+    void next.refresh(session)
   }, [])
 
   useEffect(() => {
-    void reload()
-  }, [reload])
+    let cancelled = false
+    const controller = new AbortController()
+    startup.current = controller
+    const unsubscribe = onSignedOut(() => { if (!cancelled) void clearSession().catch(() => undefined) })
+    void (async () => {
+      try {
+        const cached = await cachedUser()
+        if (cancelled || controller.signal.aborted) return
+        const hinted = !cached && document.cookie.split(';').some((cookie) => /^(?:__Host-sad_hint|sad_hint)=1$/.test(cookie.trim()))
+        if (!cached && !hinted) setStatus('signed-out')
+        const session = api.me(controller.signal, cached !== null)
+        const validation = session.then(({ user }) => user, (error: unknown) => {
+          if (cancelled || controller.signal.aborted) return null
+          if (error instanceof ApiError && error.status === 401) {
+            if (!cached) setStatus('signed-out')
+            return null
+          }
+          if (!cached) { setStatus('signed-out'); setStorageError('Connect to sign in. Your saved photos stay in your account.') }
+          return null
+        })
+        if (cached) await openAccount(cached, session)
+        const current = await validation
+        if (current && !cancelled && !controller.signal.aborted) await openAccount(current, session)
+      } catch (error) {
+        if (!cancelled && !controller.signal.aborted) { setStatus('error'); setStorageError(error instanceof Error ? error.message : 'Could not open device storage.') }
+      } finally {
+        if (startup.current === controller) startup.current = null
+      }
+    })()
+    const refresh = () => {
+      if (document.hidden) return
+      void (navigator.onLine ? engine.current?.reconnect() : engine.current?.refresh())
+    }
+    window.addEventListener('online', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    return () => {
+      cancelled = true
+      controller.abort()
+      unsubscribe()
+      window.removeEventListener('online', refresh)
+      document.removeEventListener('visibilitychange', refresh)
+      void engine.current?.stop()
+      engine.current = null
+    }
+  }, [clearSession, openAccount])
 
-  const savePhoto = useCallback(async (result: CaptureResult) => {
-    await putPhoto({ meta: result.meta, master: result.master, thumb: result.thumb })
-    // Re-read rather than splice locally: the write may have replaced an
-    // existing photo for the same day, and the store is the authority on that.
-    const [allMetas, trashedMetas] = await Promise.all([
-      listMeta(),
-      listMeta({ onlyDeleted: true }),
-    ])
-    setState((prev) => ({
-      ...prev,
-      metas: activeMetas(allMetas, prev.activeAlbum.id),
-      allMetas,
-      trashedMetas,
-      storageError: null,
-    }))
-  }, [])
-
-  const trashPhoto = useCallback(async (id: string) => {
-    const trashed = await trashPhotoRecord(id)
-    const [allMetas, trashedMetas] = await Promise.all([
-      listMeta(),
-      listMeta({ onlyDeleted: true }),
-    ])
-    setState((prev) => ({
-      ...prev,
-      metas: activeMetas(allMetas, prev.activeAlbum.id),
-      allMetas,
-      trashedMetas,
-      undoTrash: trashed,
-    }))
-  }, [])
-
-  const restorePhoto = useCallback(async (id: string) => {
-    await restorePhotoRecord(id)
-    const [allMetas, trashedMetas] = await Promise.all([
-      listMeta(),
-      listMeta({ onlyDeleted: true }),
-    ])
-    setState((prev) => ({
-      ...prev,
-      metas: activeMetas(allMetas, prev.activeAlbum.id),
-      allMetas,
-      trashedMetas,
-      undoTrash: prev.undoTrash?.id === id ? null : prev.undoTrash,
-    }))
-  }, [])
-
-  const deletePhotoPermanently = useCallback(async (id: string) => {
-    await deletePhotoPermanentlyRecord(id)
-    const trashedMetas = await listMeta({ onlyDeleted: true })
-    setState((prev) => ({
-      ...prev,
-      trashedMetas,
-      undoTrash: prev.undoTrash?.id === id ? null : prev.undoTrash,
-    }))
-  }, [])
-
-  const emptyTrash = useCallback(async (): Promise<number> => {
-    const removed = await emptyTrashRecords()
-    setState((prev) => ({ ...prev, trashedMetas: [], undoTrash: null }))
-    return removed
-  }, [])
-
-  const dismissUndo = useCallback(() => {
-    setState((prev) => ({ ...prev, undoTrash: null }))
+  const currentEngine = useCallback(() => {
+    if (!engine.current) throw new Error('Please sign in again.')
+    return engine.current
   }, [])
 
   const updateSettings = useCallback(async (patch: Partial<Settings>) => {
+    const current = currentEngine()
     const previous = settingsRef.current
-    const next: Settings = { ...previous, ...patch }
+    const next = { ...previous, ...patch }
     settingsRef.current = next
-    setState((prev) => {
-      const activeAlbum =
-        prev.albums.find((album) => album.id === next.activeAlbumId) ?? prev.activeAlbum
-      return {
-        ...prev,
-        settings: next,
-        activeAlbum,
-        metas: activeMetas(prev.allMetas, activeAlbum.id),
+    setSettings(next)
+    try { await saveSettings(next, current.user.id) }
+    catch (error) { settingsRef.current = previous; setSettings(previous); throw error }
+  }, [currentEngine])
+
+  const savePhoto = useCallback(async (result: CaptureResult) => {
+    await currentEngine().enqueue(result.meta, result.master, result.thumb)
+  }, [currentEngine])
+
+  const logout = useCallback(async () => {
+    startup.current?.abort()
+    const current = currentEngine()
+    if ('serviceWorker' in navigator) {
+      const registration = await navigator.serviceWorker.getRegistration()
+      const subscription = await registration?.pushManager?.getSubscription()
+      if (subscription) {
+        await api.removeSubscription(subscription.endpoint)
+        await subscription.unsubscribe()
       }
-    })
-
-    try {
-      await saveSettings(next)
-    } catch (err) {
-      // Every call site fires this without awaiting, so a silent failure would
-      // leave the screen showing a setting that is not on disk and will not
-      // survive a reload. Snapping the control back is the honest signal.
-      settingsRef.current = previous
-      setState((prev) => {
-        const activeAlbum =
-          prev.albums.find((album) => album.id === previous.activeAlbumId) ?? prev.activeAlbum
-        return {
-          ...prev,
-          settings: previous,
-          activeAlbum,
-          metas: activeMetas(prev.allMetas, activeAlbum.id),
-        }
-      })
-      throw err
     }
-  }, [])
+    await api.logout()
+    if (engine.current === current) await clearSession(true)
+  }, [clearSession, currentEngine])
 
-  const selectAlbum = useCallback(
-    async (id: string) => {
-      await updateSettings({ activeAlbumId: id })
+  const actions = useMemo<AppContextValue['actions']>(() => ({
+    savePhoto, updateSettings,
+    signIn: async (username, password, create) => {
+      startup.current?.abort()
+      const response = await (create ? api.signup(username, password) : api.login(username, password))
+      // Signing in opens the camera, not the screen the last session left in the
+      // address (logging out from Settings keeps /settings). An album link is
+      // already the camera, so its ?album= survives. While signed out the
+      // account screen covers every route, so this change is never seen.
+      if (parseRoute(window.location.pathname).name !== 'capture') navigate({ name: 'capture' }, { replace: true })
+      await openAccount(response.user, Promise.resolve(response))
     },
-    [updateSettings],
-  )
-
-  const createAlbum = useCallback(
-    async (name: string): Promise<Album> => {
-      const album = await createAlbumRecord(name)
-      setState((prev) => ({ ...prev, albums: [...prev.albums, album] }))
+    logout,
+    retrySync: () => currentEngine().retryUploads(),
+    reload: () => currentEngine().refresh(),
+    selectAlbum: (id) => updateSettings({ activeAlbumId: id }),
+    createAlbum: async (name) => {
+      const album = await currentEngine().saveAlbum(makeAlbum(name))
       await updateSettings({ activeAlbumId: album.id })
       return album
     },
-    [updateSettings],
-  )
-
-  const updateAlbum = useCallback(
-    async (
-      id: string,
-      patch: { name?: string; timeZone?: string | null },
-    ): Promise<Album> => {
-      const album = await updateAlbumRecord(id, patch)
-      setState((prev) => ({
-        ...prev,
-        albums: prev.albums.map((item) => (item.id === id ? album : item)),
-        activeAlbum: prev.activeAlbum.id === id ? album : prev.activeAlbum,
-      }))
-      return album
+    updateAlbum: async (id, patch) => {
+      const album = currentEngine().state.albums.find((item) => item.id === id)
+      if (!album) throw new Error('This album is no longer available.')
+      return currentEngine().saveAlbum({ ...album, ...patch })
     },
-    [],
-  )
+    trashPhoto: async (id) => {
+      const current = currentEngine()
+      const photo = current.state.photos.find((item) => item.id === id)
+      await current.mutatePhoto(id, Date.now())
+      setUndoTrash(photo ? { ...photo, deletedAt: Date.now() } : null)
+    },
+    restorePhoto: async (id) => { await currentEngine().mutatePhoto(id, null); setUndoTrash(null) },
+    deletePhotoPermanently: (id) => currentEngine().mutatePhoto(id, 'purge'),
+    emptyTrash: () => currentEngine().emptyTrash(),
+    dismissUndo: () => setUndoTrash(null),
+  }), [savePhoto, updateSettings, openAccount, logout, currentEngine])
 
-  const value = useMemo<AppContextValue>(
-    () => ({
-      ...state,
-      actions: {
-        savePhoto,
-        trashPhoto,
-        restorePhoto,
-        deletePhotoPermanently,
-        emptyTrash,
-        dismissUndo,
-        selectAlbum,
-        createAlbum,
-        updateAlbum,
-        updateSettings,
-        reload,
-      },
-    }),
-    [
-      state,
-      savePhoto,
-      trashPhoto,
-      restorePhoto,
-      deletePhotoPermanently,
-      emptyTrash,
-      dismissUndo,
-      selectAlbum,
-      createAlbum,
-      updateAlbum,
-      updateSettings,
-      reload,
-    ],
-  )
-
+  const value = useMemo<AppContextValue>(() => {
+    const albums: Album[] = sync?.albums ?? []
+    const activeAlbum = albums.find((album) => album.id === settings.activeAlbumId) ?? albums[0] ?? defaultAlbum()
+    const photos = sync ? visiblePhotos(sync) : []
+    const allMetas = photos.filter((photo) => photo.deletedAt === null)
+    return {
+      status, user, storageError, settings, actions, albums, activeAlbum, allMetas, undoTrash,
+      metas: allMetas.filter((photo) => photo.albumId === activeAlbum.id),
+      trashedMetas: photos.filter((photo) => photo.deletedAt !== null),
+      pendingIds: sync?.pending.map((entry) => entry.meta.id) ?? [],
+      syncing: sync?.syncing ?? false,
+      syncError: sync?.pending.find((entry) => entry.error)?.error ?? sync?.error ?? null,
+    }
+  }, [status, user, storageError, settings, actions, sync, undoTrash])
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

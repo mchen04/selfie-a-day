@@ -1,0 +1,56 @@
+import { expect, test } from '@playwright/test'
+import config from '../../../playwright.ux.config.ts'
+import { auditUx, press, recordTaps, safeAreaCheck, safeMetrics, startTapCount } from '../../e2e-support/ux.ts'
+
+test('audit detects injected defects and accepts their repairs', async ({ page }, info) => {
+  expect(config.projects).toHaveLength(9)
+  await page.setContent(`
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root { --safe-top: 0px; --safe-bottom: 0px; --safe-left: 0px; --safe-right: 0px; }
+      * { box-sizing: border-box; }
+      body { margin: 0; font: 16px/1.4 sans-serif; }
+      button, input { min-width: 44px; height: 44px; font-size: 16px; }
+      .topbar { padding: calc(10px + var(--safe-top)) calc(10px + var(--safe-right)) 10px calc(10px + var(--safe-left)); }
+      .topbar__title { width: 260px; }
+      .capture__controls { position: absolute; bottom: 0; width: 100%; padding: 10px calc(10px + var(--safe-right)) calc(10px + var(--safe-bottom)) calc(10px + var(--safe-left)); }
+      #clip { width: 120px; overflow: hidden; }
+      #label { width: 70px; overflow: hidden; white-space: nowrap; }
+    </style>
+    <div class="topbar"><div class="topbar__title">A clear title</div></div>
+    <div id="overflow">Text</div>
+    <div id="clip"><button id="target">Tap</button></div>
+    <div id="label" title="The complete accessible label">The complete accessible label</div>
+    <input aria-label="Username" />
+    <button class="btn" id="wrap">Two words</button>
+    <div class="capture__controls"><button id="primary">Save</button></div>
+    <div id="scroll" style="position: fixed; right: 0; bottom: 0; width: 80px; height: 80px; overflow-y: auto;"><div id="list" style="padding-bottom: var(--safe-bottom);"><p style="height: 120px; margin: 0;">List</p><button>End</button></div></div>
+    <div class="toast" style="position: fixed; top: 200px; left: 0; width: 60px; height: 30px; pointer-events: none;">Saved</div>
+    <div class="frame__overlay"><p data-testid="overlay-copy" style="position: fixed; top: 300px; left: 0; width: 60px; height: 20px; margin: 0;">Off</p></div>
+  `)
+  expect((await auditUx(page, '#primary')).filter((check) => !check.pass)).toEqual([])
+  const insets = { top: 47, bottom: 34, left: 8, right: 8 }
+  await page.addStyleTag({ content: ':root { --safe-top: 47px; --safe-bottom: 34px; --safe-left: 8px; --safe-right: 8px; }' })
+  expect(safeAreaCheck(insets, await safeMetrics(page)).pass).toBe(true)
+  await page.addStyleTag({ content: '.topbar { padding: 10px; }' })
+  expect(safeAreaCheck(insets, await safeMetrics(page)).pass).toBe(false)
+  await page.addStyleTag({ content: '.topbar { padding: calc(10px + var(--safe-top)) calc(10px + var(--safe-right)) 10px calc(10px + var(--safe-left)); } .capture__controls { padding: 10px; }' })
+  expect(safeAreaCheck(insets, await safeMetrics(page)).pass).toBe(false)
+  await page.addStyleTag({ content: '.capture__controls { padding: 10px calc(10px + var(--safe-right)) calc(10px + var(--safe-bottom)) calc(10px + var(--safe-left)); } #list { padding-bottom: 0 !important; }' })
+  const scrollEnd = safeAreaCheck(insets, await safeMetrics(page))
+  expect(scrollEnd.pass).toBe(false)
+  expect(JSON.stringify(scrollEnd.details)).toContain('"element":"#scroll","contentBottomAtEnd"')
+  await page.addStyleTag({ content: '#overflow { width: calc(100vw + 20px); } #clip { width: 20px; } #target { min-width: 20px; width: 20px; height: 20px; } input { font-size: 12px; } .topbar__title { width: 30px; } #primary { position: fixed; top: 0; left: 100px; } .toast { top: 0 !important; left: 100px !important; } [data-testid="overlay-copy"] { top: 0 !important; left: 100px !important; } #wrap { width: 44px; }' })
+  await page.locator('#label').evaluate((element) => element.removeAttribute('title'))
+  const audit = await auditUx(page, '#primary')
+  const failed = audit.filter((check) => !check.pass).map((check) => check.check)
+  expect(JSON.stringify(audit.find((check) => check.check === 'overlap')?.details)).toContain('"layer":"overlay-copy","covers":"div.toast"')
+  expect(failed).toEqual(expect.arrayContaining(['overlap', 'horizontal-scroll', 'clipping', 'targets', 'wraps', 'labels', 'inputs', 'headers']))
+  if ((page.viewportSize()?.width ?? 1280) <= 430) expect(failed).toContain('thumb-reach')
+  await startTapCount(page)
+  await press(page.locator('#primary'), info)
+  await press(page.locator('#primary'), info)
+  await page.locator('#primary').evaluate((element: HTMLButtonElement) => element.click())
+  await recordTaps(page, info, 'Counter calibration: two user taps; scripted clicks excluded', 2)
+  expect(await page.evaluate(() => (window as unknown as { uxTaps: string[] }).uxTaps.length)).toBe(2)
+})

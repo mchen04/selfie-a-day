@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------
-   Capture frame, timeline, settings and onboarding.
+   Capture frame, timeline and settings.
    --------------------------------------------------------------------------- */
 
 /* --- The frame ------------------------------------------------------------ */
@@ -13,6 +13,71 @@
   flex: 1;
   min-height: 0;
   padding: 0 max(var(--safe-left), 0px) 0 max(var(--safe-right), 0px);
+}
+
+/* The topbar and the stage padding already clear the safe areas. */
+.camera-controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
+  display: flex;
+  gap: 8px;
+}
+
+.camera-controls__button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 44px;
+  min-height: 44px;
+  width: auto;
+  padding: 0 10px;
+  border: 1px solid rgb(255 255 255 / 50%);
+  border-radius: 999px;
+  color: #fff;
+  background: rgb(0 0 0 / 78%);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.camera-controls__button:disabled {
+  opacity: 0.55;
+}
+
+.camera-countdown {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.camera-countdown > span {
+  color: rgb(255 255 255 / 80%);
+  font-size: clamp(72px, 22vmin, 150px);
+  line-height: 1;
+  font-weight: 750;
+  -webkit-text-stroke: 2px rgb(0 0 0 / 75%);
+  text-shadow: 0 2px 14px #000, 0 0 3px #000;
+  font-variant-numeric: tabular-nums;
+}
+
+.shutter__cancel {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background: var(--bg);
+}
+
+.camera-screen-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #fff;
+  pointer-events: none;
 }
 
 /* --- Album picker --------------------------------------------------------- */
@@ -94,6 +159,7 @@
 }
 
 .album-row__mark {
+  flex: none;
   width: 34px;
   height: 34px;
   display: grid;
@@ -110,10 +176,8 @@
 }
 
 .album-row__text strong {
-  overflow: hidden;
   font-size: 15px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .album-row__text span {
@@ -224,11 +288,40 @@
   }
 }
 
-.frame__hint {
+/* Notices stack at the foot of the frame: clear of the camera controls at its
+   top and of the shutter below it. */
+.frame__notices {
   position: absolute;
-  left: 50%;
+  left: 12px;
+  right: 12px;
   bottom: 12px;
-  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.frame__notices .toast-layer {
+  position: static;
+}
+
+.frame__notices .toast {
+  max-width: 100%;
+}
+
+.frame__notices .cloud-status {
+  max-width: 100%;
+  margin: 0;
+  border-color: transparent;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 66%);
+  backdrop-filter: blur(8px);
+}
+
+.frame__hint {
+  max-width: 100%;
   margin: 0;
   padding: 6px 12px;
   border-radius: 999px;
@@ -237,9 +330,7 @@
   color: rgb(255 255 255 / 88%);
   font-size: 12.5px;
   font-weight: 500;
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 3;
+  text-align: center;
 }
 
 .frame__overlay {
@@ -260,6 +351,12 @@
 
 .frame__overlay--quiet {
   background: rgb(8 8 10 / 55%);
+}
+
+/* Camera roll mode centres its copy between the timer and flash buttons and the
+   toast and upload status that stack at the frame's foot. */
+.frame__overlay--roll {
+  padding: 60px 24px 120px;
 }
 
 .frame__overlay-title {
@@ -283,8 +380,9 @@
   margin-top: 4px;
 }
 
-.frame__overlay-foot {
-  margin: 2px 0 0;
+/* Clears the timer and flash buttons (8px + 44px) at the top of the frame. */
+.frame__overlay--alert {
+  padding-top: 60px;
 }
 
 .frame--static {
@@ -379,23 +477,6 @@
   justify-content: flex-end;
 }
 
-.pill {
-  display: inline-flex;
-  align-items: center;
-  height: 28px;
-  padding: 0 11px;
-  border-radius: 999px;
-  font-size: 12.5px;
-  font-weight: 600;
-  background: var(--surface-2);
-  color: var(--muted);
-}
-
-.pill--done {
-  color: var(--accent);
-  background: rgb(94 224 184 / 12%);
-}
-
 /* 76px keeps the shutter comfortably past the 44px minimum target even when a
    thumb lands off-centre, which is the normal case one-handed. */
 .shutter {
@@ -470,12 +551,6 @@
   background: rgb(255 122 112 / 8%);
 }
 
-.banner--warn {
-  color: var(--warn);
-  border-color: rgb(255 196 107 / 30%);
-  background: rgb(255 196 107 / 8%);
-}
-
 .banner--update {
   position: absolute;
   left: 14px;
@@ -493,8 +568,9 @@
   font-size: 13.5px;
 }
 
-/* Anchored to the top. The bottom of a camera screen belongs to the thumb, and
-   a toast there covers the very controls the user just reached for. */
+/* Anchored to the top. The bottom of a screen belongs to the thumb, and a
+   toast there covers the very controls the user just reached for. The camera
+   screen stacks its toast in .frame__notices instead. */
 .toast-layer {
   position: absolute;
   left: 0;
@@ -527,11 +603,13 @@
   color: var(--danger);
 }
 
+/* Just above the photo bar and the home indicator, under the thumb that
+   tapped Trash. */
 .undo-trash {
   position: absolute;
   left: 16px;
   right: 16px;
-  top: calc(var(--safe-top) + 66px);
+  bottom: calc(var(--safe-bottom) + 72px);
   z-index: 46;
   min-height: var(--tap);
   display: flex;
@@ -592,6 +670,11 @@
 
 .month {
   padding: 4px calc(var(--safe-right) + 14px) 18px calc(var(--safe-left) + 14px);
+}
+
+/* The timeline has no bottom bar, so the last month clears the home indicator itself. */
+.month:last-child {
+  padding-bottom: calc(var(--safe-bottom) + 18px);
 }
 
 .month__label {
@@ -669,6 +752,13 @@
   color: var(--muted);
 }
 
+/* An empty list centres its message on the screen, which also puts its one
+   action under the thumb. */
+.screen__scroll > .empty:only-child {
+  min-height: 100%;
+  justify-content: center;
+}
+
 .empty__title {
   margin: 0;
   font-size: 17px;
@@ -698,8 +788,21 @@
     calc(var(--safe-left) + 14px);
 }
 
+/* Older and Newer share what Trash leaves, so they fit a 320px screen. */
 .photo__nav .btn {
   flex: 1;
+  padding: 0 12px;
+}
+
+.photo__nav .photo__trash {
+  flex: none;
+  width: 56px;
+  padding: 0;
+}
+
+.photo__well {
+  position: relative;
+  height: 100%;
 }
 
 /* --- Trash ---------------------------------------------------------------- */
@@ -783,10 +886,12 @@
 }
 
 .trash-item__actions .btn {
+  gap: 5px;
   min-width: 0;
   min-height: var(--tap);
-  padding: 0 10px;
+  padding: 0 8px;
   font-size: 12.5px;
+  white-space: nowrap;
 }
 
 @media (max-width: 350px) {
@@ -805,52 +910,113 @@
 
 /* --- Settings ------------------------------------------------------------- */
 
+/* Grouped 44px rows, as in iOS Settings. The reversed scroller holds one list,
+   so the order stays as written but the list rests on the bottom edge: on a
+   tall phone it sits under the thumb, on a short one it opens at its end and
+   stays there while rows load in. */
 .settings {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 4px calc(var(--safe-right) + 14px) calc(var(--safe-bottom) + 28px)
+  flex-direction: column-reverse;
+  padding: 4px calc(var(--safe-right) + 14px) calc(var(--safe-bottom) + 16px)
     calc(var(--safe-left) + 14px);
 }
 
-.album-settings__switch {
+.settings__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings__group {
+  display: flex;
+  flex-direction: column;
+  padding: 0 14px;
+}
+
+.settings__row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  min-height: 58px;
-  padding: 8px 12px;
-  border: 1px solid var(--line);
-  border-radius: 13px;
-  background: var(--surface-2);
+  min-height: var(--tap);
+  font-size: 15px;
   text-align: left;
 }
 
-.album-settings__switch > span:first-child {
-  display: flex;
-  flex-direction: column;
+.settings__row + .settings__row {
+  border-top: 1px solid var(--line);
+}
+
+.settings__label {
+  flex: none;
+}
+
+.settings__row > .text-input,
+.settings__row > .select-input,
+.settings__row > input[type='range'] {
+  flex: 1;
   min-width: 0;
 }
 
-.album-settings__switch strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.settings__row > input[type='range'] {
+  height: var(--tap);
+  accent-color: var(--accent);
 }
 
-.album-settings__switch small {
+.settings__value {
+  min-width: 36px;
   color: var(--muted);
+  font-size: 13px;
+  text-align: right;
 }
 
-.album-settings__switch-action {
-  display: flex;
-  align-items: center;
-  gap: 3px;
+.settings__link {
   color: var(--accent);
-  font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
+}
+
+.settings__link strong {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.settings__link > svg {
   flex: none;
+  color: var(--faint);
+}
+
+.settings__link-hint {
+  font-size: 13px;
+}
+
+.settings__link:disabled,
+.settings__action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.settings__action {
+  min-width: var(--tap);
+  min-height: var(--tap);
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.settings__action--danger {
+  color: var(--danger);
+}
+
+.settings__name {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
 .section__title {
@@ -889,7 +1055,6 @@
 
 .row__control {
   flex: none;
-  min-width: 116px;
   display: flex;
   justify-content: flex-end;
 }
@@ -897,10 +1062,6 @@
 .row:has(.segmented) {
   flex-direction: column;
   align-items: stretch;
-}
-
-.row:has(.segmented) .row__control {
-  min-width: 0;
 }
 
 .segmented {
@@ -971,148 +1132,13 @@
   transform: translateX(20px);
 }
 
-.facts {
-  margin: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px 14px;
-}
-
-.facts > div {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.facts dt {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.facts dd {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 650;
-}
-
-.iconbtn[data-danger='true'] {
-  color: var(--danger);
-  background: rgb(255 122 112 / 12%);
-}
-
-/* --- Onboarding ----------------------------------------------------------- */
-
-.onboarding__body {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: calc(var(--safe-top) + 40px) calc(var(--safe-right) + 26px) 20px
-    calc(var(--safe-left) + 26px);
+.switch:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 /* flex: none matters. As a column flex item this shrinks along the main axis
    when the page is tight, which squashed the circular rings into ellipses. */
-.onboarding__mark {
-  position: relative;
-  width: 84px;
-  height: 84px;
-  flex: none;
-  margin-bottom: 6px;
-}
-
-.onboarding__ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border: 3px solid var(--text);
-}
-
-.onboarding__ring--ghost {
-  border-color: rgb(94 224 184 / 55%);
-  transform: translate(-11px, -9px);
-}
-
-.onboarding__dot {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 13px;
-  height: 13px;
-  margin: -6.5px 0 0 -6.5px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
-.onboarding__title {
-  margin: 0;
-  font-size: 30px;
-  line-height: 1.12;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.onboarding__lede {
-  margin: 0;
-  font-size: 15.5px;
-  line-height: 1.5;
-  color: var(--muted);
-  max-width: 34ch;
-}
-
-.onboarding__points {
-  list-style: none;
-  margin: 10px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.onboarding__points li {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  color: var(--accent);
-}
-
-.onboarding__points li > svg {
-  flex: none;
-}
-
-.onboarding__points div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  color: var(--text);
-}
-
-.onboarding__points strong {
-  font-size: 14.5px;
-  font-weight: 650;
-}
-
-.onboarding__points span {
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.onboarding__install {
-  margin: 8px 0 0;
-  padding: 12px 14px;
-  border-radius: var(--radius);
-  border: 1px dashed var(--line-strong);
-}
-
-.onboarding__foot {
-  flex: none;
-  padding: 12px calc(var(--safe-right) + 26px) calc(var(--safe-bottom) + 22px)
-    calc(var(--safe-left) + 26px);
-}
-
-.onboarding__foot-note {
-  margin: 8px 0 0;
-  text-align: center;
-}
 
 /* --- Frame as shutter ------------------------------------------------------ */
 
@@ -1126,33 +1152,6 @@
   cursor: pointer;
 }
 
-
-/* --- Backup nudge ---------------------------------------------------------- */
-
-.banner--nudge {
-  color: var(--warn);
-  border-color: rgb(255 196 107 / 28%);
-  background: rgb(255 196 107 / 7%);
-  gap: 8px;
-}
-
-/* Two lines at most. The live preview is the reason the app exists, so an
-   advisory must stay small — but a warning truncated mid-sentence creates
-   anxiety without conveying the risk, which is worse than not showing it. */
-.banner--nudge span {
-  flex: 1;
-  min-width: 0;
-  color: var(--text);
-  display: -webkit-box;
-  /* Three lines so the sentence still completes on a 320px-wide phone. */
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  line-height: 1.35;
-}
-
-
 .banner__link {
   min-height: var(--tap);
   min-width: var(--tap);
@@ -1162,14 +1161,6 @@
   font-weight: 650;
   color: var(--warn);
   flex: none;
-}
-
-.banner__link--icon {
-  color: var(--muted);
-  padding: 0;
-  width: var(--tap);
-  display: grid;
-  place-items: center;
 }
 
 /* --- Timelapse playback ----------------------------------------------------- */
@@ -1281,19 +1272,4 @@
   min-width: var(--tap);
   min-height: var(--tap);
   font-size: 12.5px;
-}
-
-.card--inset {
-  background: var(--surface-2);
-  border-radius: var(--radius);
-  padding: 12px;
-}
-
-.problems {
-  margin: 6px 0 0;
-  padding-left: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: var(--warn);
 }

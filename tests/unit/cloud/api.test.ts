@@ -1,0 +1,86 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { api, ApiError, onSignedOut, uploadPhoto } from '../../../src/api/client.ts'
+import { defaultAlbum } from '../../../src/core/albums.ts'
+import { photo, reply } from './fixtures.ts'
+
+afterEach(() => vi.unstubAllGlobals())
+
+describe('API contract', () => {
+  it('sends same-origin credentials and CSRF on writes only', async () => {
+    const request = vi.fn().mockImplementation(() => Promise.resolve(reply({ user: { id: 'synthetic', username: 'synthetic' } })))
+    vi.stubGlobal('fetch', request)
+    await api.me()
+    await api.login('synthetic', crypto.randomUUID())
+    const get = request.mock.calls[0]![1] as RequestInit
+    const post = request.mock.calls[1]![1] as RequestInit
+    expect(get.credentials).toBe('same-origin')
+    expect(new Headers(get.headers).has('X-Selfie-CSRF')).toBe(false)
+    expect(new Headers(post.headers).get('X-Selfie-CSRF')).toBe('1')
+    expect(new Headers(post.headers).get('Content-Type')).toBe('application/json')
+  })
+  it('lets the browser set the multipart boundary and sends timer metadata', async () => {
+    const request = vi.fn().mockResolvedValue(reply({ photo: photo(), replaced: [] }, 201))
+    vi.stubGlobal('fetch', request)
+    await uploadPhoto('synthetic-a', { ...photo(), timerSeconds: 5 }, new Blob([new Uint8Array(16)], { type: 'image/webp' }), new Blob([new Uint8Array(4)], { type: 'image/webp' }))
+    const init = request.mock.calls[0]![1] as RequestInit
+    expect(new Headers(init.headers).has('Content-Type')).toBe(false)
+    expect(new Headers(init.headers).get('X-Selfie-CSRF')).toBe('1')
+    expect(new Headers(init.headers).get('X-Selfie-User')).toBe('synthetic-a')
+    expect(JSON.parse((init.body as FormData).get('meta') as string)).toMatchObject({ timerSeconds: 5 })
+    expect((init.body as FormData).has('master')).toBe(true)
+  })
+  it('signs out on a protected 401, but keeps login errors inline', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply({ error: 'invalid_credentials' }, 401)))
+    const signedOut = vi.fn()
+    const off = onSignedOut(signedOut)
+    try {
+      await expect(api.login('synthetic', crypto.randomUUID())).rejects.toThrow(/incorrect/)
+      expect(signedOut).not.toHaveBeenCalled()
+      await expect(api.sync()).rejects.toBeInstanceOf(ApiError)
+      expect(signedOut).toHaveBeenCalledOnce()
+    } finally { off() }
+  })
+  it('shows the server wait time for rate limits', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply({ error: 'too_many_attempts' }, 429, { 'Retry-After': '120' })))
+    const error = await api.signup('synthetic', crypto.randomUUID()).catch((error: unknown) => error)
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).retryAfter).toBe(120)
+    expect((error as ApiError).message).toContain('2 minute')
+  })
+  it('does not sign out when a cancelled session check finishes reading a 401', async () => {
+    const response = reply({ error: 'unauthenticated' }, 401)
+    let respond: ((body: unknown) => void) | undefined
+    const body = new Promise<unknown>((resolve) => { respond = resolve })
+    const reading = vi.spyOn(response, 'json').mockReturnValue(body)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+    const signedOut = vi.fn()
+    const off = onSignedOut(signedOut)
+    try {
+      const controller = new AbortController()
+      const checking = api.me(controller.signal)
+      await vi.waitFor(() => expect(reading).toHaveBeenCalled())
+      controller.abort()
+      respond!({ error: 'unauthenticated' })
+      await expect(checking).rejects.toMatchObject({ name: 'AbortError' })
+      expect(signedOut).not.toHaveBeenCalled()
+    } finally { off() }
+  })
+  it('maps restore conflicts to an actionable message', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply({ error: 'day_taken' }, 409)))
+    await expect(api.patchPhoto('synthetic-a', photo().id, null)).rejects.toThrow(/already has a photo/)
+  })
+  it('names the account on every photo and album write, and signs out when the session now belongs to another', async () => {
+    const fetch = vi.fn((_path: string, _init: RequestInit) => Promise.resolve(reply({ error: 'user_mismatch' }, 409)))
+    vi.stubGlobal('fetch', fetch)
+    const signedOut = vi.fn()
+    const off = onSignedOut(signedOut)
+    try {
+      for (const write of [
+        () => api.patchPhoto('synthetic-a', photo().id, 1), () => api.deletePhoto('synthetic-a', photo().id), () => api.emptyTrash('synthetic-a'),
+        () => api.album('synthetic-a', { ...defaultAlbum(), name: 'Synthetic' }),
+      ]) await expect(write()).rejects.toMatchObject({ status: 401, code: 'unauthenticated' })
+      expect(fetch.mock.calls.map(([, init]) => new Headers(init.headers).get('X-Selfie-User'))).toEqual(Array(4).fill('synthetic-a'))
+      expect(signedOut).toHaveBeenCalledTimes(4)
+    } finally { off() }
+  })
+})

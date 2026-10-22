@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { createZip, crc32, readZip, ZipError, type Bytes } from '../../src/storage/zip.ts'
+import { createZip, crc32, ZipError, type Bytes } from '../../src/storage/zip.ts'
+import { readZip } from '../support/zip.ts'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -82,14 +83,5 @@ describe('createZip / readZip', () => {
     bytes[target] = bytes[target]! ^ 0xff
     expect(() => readZip(bytes)).toThrow(ZipError)
     expect(() => readZip(bytes)).toThrow(/checksum/i)
-  })
-
-  it('rejects a file that is not a ZIP at all', () => {
-    expect(() => readZip(encoder.encode('this is just some text, not an archive'))).toThrow(ZipError)
-  })
-
-  it('rejects a truncated archive', async () => {
-    const bytes = await toBytes(createZip([{ name: 'photo.jpg', data: randomBytes(400) }]))
-    expect(() => readZip(bytes.slice(0, bytes.length - 10))).toThrow(ZipError)
   })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isPhotoId, newPhotoId } from '../../src/core/id.ts'
+import { newPhotoId } from '../../src/core/id.ts'
 
 describe('newPhotoId', () => {
   it('sorts lexicographically in capture order', () => {
@@ -24,17 +24,7 @@ describe('newPhotoId', () => {
   })
 
   it('clamps a negative timestamp instead of emitting a malformed id', () => {
-    expect(isPhotoId(newPhotoId(-5000))).toBe(true)
-  })
-})
-
-describe('isPhotoId', () => {
-  it('accepts generated ids and rejects anything else', () => {
-    expect(isPhotoId(newPhotoId())).toBe(true)
-    expect(isPhotoId('')).toBe(false)
-    expect(isPhotoId('../../etc/passwd')).toBe(false)
-    expect(isPhotoId('ABCDEF')).toBe(false)
-    expect(isPhotoId(12345)).toBe(false)
-    expect(isPhotoId(null)).toBe(false)
+    // The Worker accepts photo IDs matching this pattern only.
+    expect(newPhotoId(-5000)).toMatch(/^[0-9a-z]{20}$/)
   })
 })

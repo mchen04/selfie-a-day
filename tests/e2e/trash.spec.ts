@@ -1,83 +1,78 @@
 import { expect, test } from '@playwright/test'
-import {
-  captureOnce,
-  completeOnboarding,
-  countPhotos,
-  gotoApp,
-  listStoredPhotos,
-  waitForCameraLive,
-} from '../e2e-support/helpers.ts'
+import { ensureSignedIn } from '../e2e-support/helpers.ts'
+import { seedPhoto, snapshot } from '../e2e-support/api.ts'
 
-async function trashCurrentPhoto(page: import('@playwright/test').Page): Promise<void> {
-  await page.getByTestId('nav-timeline').click()
-  await page.getByTestId('timeline-cell').click()
+test('trash, undo, restore, and permanently delete a server photo', async ({ page }) => {
+  await page.goto('/')
+  await ensureSignedIn(page)
+  const photo = await seedPhoto(page, '2026-08-09')
+  await page.goto(`/photo/${photo.id}`)
   await page.getByTestId('photo-delete').click()
-  await expect(page.getByTestId('delete-confirm')).toBeVisible()
+  await expect(page.getByTestId('undo-trash')).toBeVisible()
+  await page.getByTestId('undo-trash-action').click()
+  await expect.poll(async () => (await snapshot(page.request)).photos[0]?.deletedAt).toBeNull()
+  await page.goto(`/photo/${photo.id}`)
   await page.getByTestId('photo-delete').click()
-  await expect(page.getByTestId('timeline-screen')).toBeVisible()
-}
+  await expect.poll(async () => (await snapshot(page.request)).photos[0]?.deletedAt).not.toBeNull()
+  await page.goto('/trash')
+  await expect(page.getByTestId('trash-item')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Restore', exact: true }).click()
+  await expect(page.getByTestId('trash-empty')).toBeVisible()
+  await page.goto(`/photo/${photo.id}`)
+  await page.getByTestId('photo-delete').click()
+  await expect.poll(async () => (await snapshot(page.request)).photos[0]?.deletedAt).not.toBeNull()
+  await page.goto('/trash')
+  await page.getByTestId('trash-delete-permanently').click()
+  await expect(page.getByTestId('trash-delete-permanently')).toHaveText('Delete forever?')
+  await page.getByTestId('trash-delete-permanently').click()
+  await expect(page.getByTestId('trash-empty')).toBeVisible()
+  expect((await page.request.get(`/api/photos/${photo.id}/master`)).status()).toBe(404)
+})
 
-test.describe('reversible trash', () => {
-  test('a removed photo can be undone immediately or restored from Trash', async ({ page }) => {
-    await gotoApp(page)
-    await completeOnboarding(page)
-    await waitForCameraLive(page)
-    const id = await captureOnce(page)
+test('Empty requires an inline second tap before deleting server photos', async ({ page }) => {
+  await page.goto('/')
+  await ensureSignedIn(page)
+  const photo = await seedPhoto(page, '2026-08-09')
+  await page.goto(`/photo/${photo.id}`)
+  await page.getByTestId('photo-delete').click()
+  await expect(page.getByTestId('undo-trash')).toBeVisible()
+  await page.goto('/trash')
+  await expect(page.getByTestId('trash-item')).toHaveCount(1)
+  await page.getByTestId('empty-trash').click()
+  await expect(page.getByTestId('empty-trash')).toHaveText('Confirm')
+  expect((await snapshot(page.request)).photos).toHaveLength(1)
+  await page.getByTestId('empty-trash').click()
+  await expect(page.getByTestId('trash-empty')).toBeVisible()
+  expect((await snapshot(page.request)).photos).toEqual([])
+})
 
-    await trashCurrentPhoto(page)
-    expect(await countPhotos(page)).toBe(0)
-    expect(await listStoredPhotos(page, { includeDeleted: true })).toMatchObject([
-      { id, deletedAt: expect.any(Number) },
-    ])
-    await expect(page.getByTestId('undo-trash')).toContainText('Photo moved to Trash')
-
-    await page.getByTestId('undo-trash-action').click()
-    await expect(page.getByTestId('undo-trash')).toHaveCount(0)
-    expect(await countPhotos(page)).toBe(1)
-    await expect(page.getByTestId('timeline-cell')).toHaveCount(1)
-
-    await page.getByTestId('timeline-cell').click()
-    await page.getByTestId('photo-delete').click()
-    await expect(page.getByTestId('delete-confirm')).toBeVisible()
-    await page.getByTestId('photo-delete').click()
-    await expect(page.getByTestId('timeline-screen')).toBeVisible()
-    await page.goto('/settings')
-    await page.getByTestId('review-trash').click()
+test('a delayed restore stays visible until a full navigation can read the restored photo', async ({ page }) => {
+  await page.goto('/')
+  await ensureSignedIn(page)
+  const photo = await seedPhoto(page, '2026-08-09')
+  await page.goto(`/photo/${photo.id}`)
+  await page.getByTestId('photo-delete').click()
+  await expect(page.getByTestId('undo-trash')).toBeVisible()
+  await page.goto('/trash')
+  await expect(page.getByTestId('trash-item')).toHaveCount(1)
+  let release: (() => void) | undefined
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  let entered: (() => void) | undefined
+  const requested = new Promise<void>((resolve) => { entered = resolve })
+  await page.route(`**/api/photos/${photo.id}`, async (route) => {
+    if (route.request().method() === 'PATCH') { entered!(); await gate }
+    await route.continue()
+  })
+  await page.getByRole('button', { name: 'Restore', exact: true }).click()
+  await requested
+  try {
     await expect(page.getByTestId('trash-item')).toHaveCount(1)
-    await page.getByRole('button', { name: 'Restore' }).click()
-    await expect(page.getByTestId('trash-empty')).toBeVisible()
-    expect(await countPhotos(page)).toBe(1)
-  })
-
-  test('permanent deletion removes the retained pixels', async ({ page }) => {
-    await gotoApp(page)
-    await completeOnboarding(page)
-    await waitForCameraLive(page)
-    const id = await captureOnce(page)
-    await trashCurrentPhoto(page)
-
-    await page.goto('/trash')
-    const remove = page.getByTestId('trash-delete-permanently')
-    await remove.click()
-    await expect(remove).toContainText('Delete forever?')
-    await remove.click()
-    await expect(page.getByTestId('trash-empty')).toBeVisible()
-    expect(await listStoredPhotos(page, { includeDeleted: true })).toHaveLength(0)
-
-    const master = await page.evaluate(async (photoId) => {
-      const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open('selfie-a-day')
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'))
-      })
-      const row = await new Promise<unknown>((resolve, reject) => {
-        const request = db.transaction('masters', 'readonly').objectStore('masters').get(photoId)
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'))
-      })
-      db.close()
-      return row ?? null
-    }, id)
-    expect(master).toBeNull()
-  })
+    await expect(page.getByRole('button', { name: 'Restore', exact: true })).toBeDisabled()
+    await expect(page.getByTestId('trash-empty')).toHaveCount(0)
+  } finally { release!() }
+  await expect(page.getByTestId('trash-empty')).toBeVisible()
+  await page.goto(`/photo/${photo.id}`)
+  await expect(page.getByTestId('photo-delete')).toBeVisible()
+  await expect(page.getByTestId('photo-image')).toBeVisible()
+  expect((await snapshot(page.request)).photos.find((item) => item.id === photo.id)?.deletedAt).toBeNull()
 })

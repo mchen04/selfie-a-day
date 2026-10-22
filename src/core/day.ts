@@ -4,8 +4,7 @@
  * "One selfie a day" is a human claim, not a UTC one: a photo taken at 11pm and
  * one taken at 1am are different days to the user even though they may be the
  * same UTC day. Every day boundary in this app is local, and each photo records
- * the timezone offset it was taken at so a later timezone change cannot silently
- * re-bucket history.
+ * its day key at capture, so a later timezone change cannot re-bucket history.
  */
 
 /** `YYYY-MM-DD` in local time. Sorts lexicographically, which we rely on. */
@@ -15,9 +14,6 @@ interface CalendarParts {
   year: number
   month: number
   day: number
-  hour: number
-  minute: number
-  second: number
 }
 
 function partsInTimeZone(date: Date, timeZone: string): CalendarParts {
@@ -26,10 +22,6 @@ function partsInTimeZone(date: Date, timeZone: string): CalendarParts {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
   }).formatToParts(date)
   const value = (type: Intl.DateTimeFormatPartTypes): number =>
     Number(parts.find((part) => part.type === type)?.value)
@@ -37,9 +29,6 @@ function partsInTimeZone(date: Date, timeZone: string): CalendarParts {
     year: value('year'),
     month: value('month'),
     day: value('day'),
-    hour: value('hour'),
-    minute: value('minute'),
-    second: value('second'),
   }
 }
 
@@ -66,20 +55,6 @@ export function dayKeyOf(date: Date = new Date(), timeZone?: string): DayKey {
   const m = `${date.getMonth() + 1}`.padStart(2, '0')
   const d = `${date.getDate()}`.padStart(2, '0')
   return `${y}-${m}-${d}`
-}
-
-/** `Date#getTimezoneOffset` semantics for any IANA timezone. */
-export function timeZoneOffsetMinutes(date: Date, timeZone: string): number {
-  const parts = partsInTimeZone(date, timeZone)
-  const localAsUtc = Date.UTC(
-    parts.year,
-    parts.month - 1,
-    parts.day,
-    parts.hour,
-    parts.minute,
-    parts.second,
-  )
-  return Math.round((date.getTime() - localAsUtc) / 60_000)
 }
 
 const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/

@@ -1,141 +1,160 @@
 # Selfie a Day
 
-One aligned photo a day in each album, so face, physique, or any other long-running
-change can stay separate and play back without the subject jumping around.
+Take one aligned photo each day, with a separate history for each album.
+Your private account keeps photos in sync across devices.
 
 **Live: https://selfie-a-day.vercel.app**
 
-Everything stays on your device. No account, no upload, no cloud — the app makes
-no network requests at all once it has loaded.
+## Daily use
 
----
+Choose an album and align against its latest photo.
+The ghost, preview and saved image use the same crop and mirror rules.
+Timer and flash controls sit inside the viewfinder.
+The timer cycles Off → 3s → 5s → 10s → Off.
+Each album inherits the timer from its latest photo, including photos from another device.
+A newer local timer choice takes priority.
 
-## The idea
+Retaking a photo moves the previous photo for that album and day to Trash.
+Trash retains photos for 30 days.
+The server clock starts that period.
+Empty and permanent deletion each require two taps on the same inline button.
+Restore fails if that day already has an active photo.
+Albums can follow the device timezone or use a fixed IANA timezone.
+The timeline includes timelapse playback, date filters and video export.
 
-Open the app. Choose an album, then line up against faint guides and the ghost of
-that album's last photo. Each album gets its own one-photo-per-day slot and can
-follow the device timezone or a manual IANA timezone.
+Settings includes one reminder row per album.
+Reminders require browser permission and an installed PWA on iPhone.
+The scheduler skips reminders once today's photo exists.
+It supports one evening nudge and milestone messages.
+Reminders follow the album's fixed zone, or the most recently synced device zone.
 
-Each album has a fast timelapse with scrubbing, three speeds, looping, date-range
-filters, optional date stamps, duration preview, and local video export/share.
-Removed photos stay recoverable in Trash for 30 days, with an immediate Undo.
+## Storage and privacy
 
-The failure this exists to avoid is an alignment aid that is decorative: a ghost
-too faint to use, buried behind a menu, or — the one real users complain about
-most — showing a *mirror image* of the photo that actually gets saved, so
-nothing you line up against is real.
+Cloudflare D1 holds accounts, sessions, photo metadata and reminder settings.
+Private R2 storage holds photo images.
+Each API request checks account ownership.
+The browser sends account requests through the same origin.
 
-## How the alignment is guaranteed
+The device keeps a metadata snapshot, pending uploads and one ghost image per album.
+Offline captures wait in an account-scoped upload queue.
+They upload when the connection returns.
+Signing out clears local account data and removes this device's push subscription.
+One confirmation warns if pending captures will be lost.
+An expired session opens sign-in and keeps that user's captures and caches.
+Signing back in resumes uploads; another account cannot see or upload them.
 
-The product rests on one invariant:
+Use **Download my photos** in Settings for a ZIP of dated images and metadata.
+The app does not import backups.
 
-> what the user aligned against **=** what got saved **=** what becomes the ghost
+[docs/data-flow.md](docs/data-flow.md) lists every stored item, why it exists and how it is deleted.
 
-It is held by construction rather than by care:
+## Local development
 
-1. `computeCoverCrop()` in `src/core/geometry.ts` is the only definition of the
-   crop. The preview box and the capture canvas both use it, and it depends only
-   on the source dimensions and the frame's *aspect* — never on pixel sizes,
-   which is why a 390px phone preview and a 1080px capture agree.
-2. Stored photos are already in frame space (3:4), so drawing one back into the
-   frame is the identity mapping. The ghost has no second transform that could
-   disagree.
-3. Each photo records the mirroring its pixels are in. The ghost flips only when
-   that disagrees with the current preview, so changing the mirror setting can
-   never corrupt older photos' alignment.
-
-This is verified against a **known camera target**, not by eye: the test suite
-feeds a synthetic camera three coloured markers at known positions, computes
-where each must land after cropping and mirroring, then reads the stored pixels
-and the on-screen composite and checks. A wrong crop offset, a missing mirror,
-or a mirror applied twice all move a marker somewhere the test does not expect.
-
-## Storage and getting your photos out
-
-Photos live in IndexedDB, split across three stores by read cost — metadata,
-thumbnails, and full-size images — so a timeline with hundreds of photos never
-reads a full-size image it is not showing.
-
-Browsers can evict website storage. The app asks for persistent storage, reports
-honestly what the browser actually granted, and treats **export as the protection
-that works everywhere**. A backup is a plain `.zip` of ordinary dated image files
-plus a small manifest: openable in Finder or Explorer, useful with or without
-this app, forever. That is deliberate — the loudest complaint in this whole app
-category is years of photos stranded inside software that stopped working.
-
-## Running it
-
-```bash
+```sh
 npm install
-npm run fixtures     # generate the synthetic camera target used by tests
-npm run dev          # http://localhost:5173
+npm run dev:api
 ```
 
-`getUserMedia` needs a secure context, so `localhost` and the deployed URL are
-the only origins where the camera works.
+The API starter applies local D1 migrations and serves the Worker on port 8787.
+It keeps state in `worker/.wrangler/state`.
+Migrations 0001 and 0002 were edited in place before the first release.
+Delete `worker/.wrangler/state` if it was created before that.
+The starter creates a throwaway VAPID key pair in git-ignored `worker/.dev.vars` when needed.
+Keep that file private; delete it with local state to start again with fresh keys.
 
-## Verifying it
+Start the frontend in another terminal:
 
-```bash
-npm run verify       # typecheck + lint + test + build
-npx playwright test  # local end-to-end tests, mobile + desktop viewports
-npm run verify:full  # both
+```sh
+npm run dev
 ```
 
-End-to-end tests run against a real production build served by `vite preview`,
-because the service worker, the precache and offline behaviour only exist there.
-The timelapse export check also expects `ffprobe` on `PATH` (it ships with
-FFmpeg) so the generated video's real container duration is verified.
+Vite serves the app on port 5173 and forwards `/api` to the local Worker.
+The preview server uses port 4319 with the same forwarding rule.
+Camera access requires a secure context, such as localhost or HTTPS.
 
-Screenshots, downloaded test files, camera fixtures, build output, and Playwright
-reports are generated artifacts. They are ignored by git and are not retained
-after a release run.
+## Tests
 
-Playwright starts and stops that server itself. If you run the suite repeatedly
-back to back, start the server yourself first — otherwise a second run can adopt
-the first run's server while it is still shutting down, and every test after
-that point fails on a dead connection:
-
-```bash
-npm run build && npm run preview &   # then run the suite as often as you like
-```
-
-To check the live deployment:
-
-```bash
-E2E_BASE_URL=https://selfie-a-day.vercel.app npx playwright test tests/e2e/production.spec.ts
-```
-
-## Documentation
-
-| File | What it holds |
+| Command | What it runs |
 |---|---|
-| `docs/progress.md` | Gate-by-gate status with the evidence that closed each one, measured performance, secret containment, and what the tests deliberately do **not** prove |
-| `docs/research.md` | Both research tracks with dated primary sources, a build/cut decision for every feature in the category, and the twelve findings that changed the design |
-| `docs/ux-loop.log.md` | Three UX cycles, the six defects cycle 1 found, and the two clean cycles that closed it |
-| `docs/code-quality-loop.log.md` | Four review cycles, every finding that survived adversarial refutation, and an honest convergence verdict |
+| `npm run verify` | Type checks, lint, client unit tests, Worker tests and the production build |
+| `npm run test:e2e` | Playwright against an isolated local Worker and the production preview |
+| `npm run test:ux` | Mobile UX audit of an existing build; see [tests/e2e/ux/README.md](tests/e2e/ux/README.md) |
+| `npm run sim` | Ten simulated days on two devices with a fake clock, cron and push receiver |
 
-## Layout
+The Worker tests use real Miniflare D1 and a local HTTP push receiver.
+They generate throwaway keys and decrypt delivered messages.
+When a sandbox blocks sockets, run the socket-free subset:
 
-```
-src/core      pure domain — geometry, day keys, ids, types. No DOM, no React.
-src/storage   IndexedDB, schema ladder, backup format, minimal ZIP.
-src/camera    MediaStream lifecycle, capture pipeline, encoding, support probes.
-src/app       React screens, components, router, hooks.
-src/pwa       service-worker registration.
-src/sw.ts     the worker — app shell only; it cannot read photos.
-docs/         research, progress, and both loop logs.
+```sh
+SELFIE_PUSH_TEST_MODE=sqlite npx vitest run --config worker/vitest.config.ts worker/test/push/push.test.ts worker/test/push/runtime.test.ts worker/test/core/push.test.ts worker/test/core/local-api.test.ts worker/test/core/scheduled.test.ts worker/test/core/security.test.ts worker/test/core/password.test.ts
 ```
 
-The layer boundaries are enforced by a test (`tests/unit/architecture.test.ts`),
-which also asserts that no application code contains a network primitive and that
-no credential-shaped string appears anywhere in the source.
+That subset checks SQL, encryption and scheduling with SQLite and an in-memory receiver.
+It does not replace Miniflare or browser verification.
 
-## What it deliberately does not do
+`test:e2e` and `sim` build the app first and start their own Worker with fresh D1/R2 state.
+The e2e Worker gets new VAPID keys; the sim derives its pair from a fixed label so every run is the same story.
+Timelapse export checks need `ffprobe` from FFmpeg.
+`production.spec.ts` checks headers and CSP against a deploy; it skips without an HTTPS `E2E_BASE_URL`.
+`vite preview` sends no CSP; only `vercel.json` does.
 
-No accounts, no cloud storage, no sync, no push notifications, no face detection
-or ML auto-alignment, no filters, no social features. `docs/research.md` gives
-every feature in the category an explicit build-or-cut decision with a reason —
-including the most-requested missing feature in competing apps (nudging a photo
-after capture), which is cut because it is a symptom fix for the alignment bug
-this design removes at the source.
+The sim writes `SIM_EVIDENCE_DIR` (default `test-results/sim`): per day `checks`, `requests`, `storage`, `push` and `console` JSON, screenshots and `summary.md`.
+Run one sim at a time, and do not edit `worker/src` while it runs: `wrangler dev` reloads the Worker mid-run.
+
+Data-flow audits read that evidence:
+
+```sh
+node scripts/audit/requests.mjs test-results/sim [--compare <other sim dir>]
+node scripts/audit/queries.mjs
+```
+
+The first counts requests, bytes and device/server storage per endpoint, flow and day.
+The second maps every D1 statement to its columns and index; `worker/test/core/data-audit.test.ts` fails on a new unexplained finding.
+Performance measurement uses a separate harness: [scripts/perf/README.md](scripts/perf/README.md).
+
+## Deploy
+
+The Worker (`worker/wrangler.jsonc`, name `selfie-a-day-api`) serves `/api`; Vercel serves the app and rewrites `/api` to it.
+
+The config also defines a `local` environment, so `wrangler deploy` and `wrangler secret put` warn without a target; `--env=""` selects the top-level production config.
+
+1. Apply migrations: `npx wrangler d1 migrations apply DB --remote --config worker/wrangler.jsonc`.
+2. `VAPID_PUBLIC_KEY` in `worker/wrangler.jsonc` is the production push public key.
+   Store the matching private key with `npx wrangler secret put VAPID_PRIVATE_KEY --config worker/wrangler.jsonc --env=""`.
+   The key format is the one `ensureLocalVapid` in `worker/scripts/local-api.mjs` writes: base64url P-256 public point and 32-byte private scalar.
+   Replacing the pair strands existing subscriptions: the app reuses a device's subscription, so each device must sign out in Settings, which removes it, before reminders reach it again.
+3. Deploy the Worker: `npx wrangler deploy --config worker/wrangler.jsonc --env=""`.
+4. `vercel.json` rewrites `/api` to `selfie-a-day-api.michaelluochen1.workers.dev`; deploy the app with Vercel.
+5. Create an account in the app, or provision one: `node worker/scripts/provision-user.mjs <username>` reads a password from stdin and prints the SQL for `wrangler d1 execute`.
+
+Sessions use the `__Host-` cookie prefix, so production must be HTTPS on one origin.
+
+## Platform limits
+
+- iOS allows `getUserMedia` in home-screen PWAs since iOS 13.4.
+  Camera permission does not persist across standalone cold starts (WebKit bug 280394), so iOS may ask again.
+- Back from under 50 s in the background, the camera restarts by itself; after longer, the app asks for a tap.
+  50 s stays under WebKit's 60 s window, after which an automatic restart would prompt again.
+- Without `getUserMedia` or a secure context, the shutter opens the file picker (`capture="user"`).
+- New photos follow the library's mirror space, not the current Mirror setting, so a timelapse never flips midway.
+- Browser tests use Chromium and WebKit with fake cameras and stubbed notifications.
+  Physical iPhone standalone behavior, the torch, real safe-area values and installed-PWA push delivery are not verified.
+
+## Code map
+
+| Path | Purpose |
+|---|---|
+| `src/core` | Geometry, dates, IDs and data types |
+| `src/camera` | Camera lifecycle, capture, timer and flash |
+| `src/api` | Account, sync, photo and push requests |
+| `src/sync` | Metadata sync and pending uploads |
+| `src/storage` | Device state, ghost cache and ZIP export |
+| `src/app` | Screens, state and navigation |
+| `src/push`, `src/sw.ts` | Push subscriptions, notifications and app shell |
+| `worker/src/core` | Authentication, albums, photos and sync |
+| `worker/src/push` | Push validation, encryption and scheduling |
+| `worker/migrations` | Local and production D1 schema |
+| `tests/sim` | Ten-day simulation |
+| `scripts/audit`, `scripts/perf` | Data-flow audits and the performance harness |
+| `docs/api-contract.md` | Client/Worker contract and regression map |
+| `docs/data-flow.md` | Stored data, retention and measured request flows |

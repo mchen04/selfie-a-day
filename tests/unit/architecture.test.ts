@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { credentialFiles } from '../support/repository.ts'
 
 const SRC = resolve(import.meta.dirname, '../../src')
 
@@ -84,60 +85,21 @@ describe('layering', () => {
   })
 })
 
-/**
- * The product promise, enforced mechanically.
- *
- * "Photos never leave the device" is not something a reviewer should have to
- * re-audit by reading every file each release. Application code contains no
- * network primitive at all; the service worker is the single exception and it
- * only ever touches the precached app shell.
- */
-describe('local-first guarantee', () => {
-  const APP_CODE = FILES.filter((f) => f.rel !== 'sw.ts')
-
-  it('contains no network calls anywhere in application code', () => {
-    const patterns: [RegExp, string][] = [
-      [/\bfetch\s*\(/, 'fetch()'],
-      [/\bXMLHttpRequest\b/, 'XMLHttpRequest'],
-      [/\bnew\s+WebSocket\b/, 'WebSocket'],
-      [/\bnew\s+EventSource\b/, 'EventSource'],
-      [/navigator\s*\.\s*sendBeacon/, 'sendBeacon'],
-      [/\bimport\s*\(\s*['"]https?:/, 'remote dynamic import'],
-    ]
-
-    const offenders: string[] = []
-    for (const file of APP_CODE) {
-      for (const [re, label] of patterns) {
-        if (re.test(file.text)) offenders.push(`${file.rel}: ${label}`)
-      }
-    }
-    expect(offenders).toEqual([])
+describe('cloud boundaries', () => {
+  it('keeps network calls inside src/api', () => {
+    const patterns = [/\bfetch\s*\(|\[\s*['"]fetch['"]\s*\]\s*\(/, /\bXMLHttpRequest\b/, /\bnew\s+WebSocket\b/, /\bnew\s+EventSource\b/, /navigator\s*\.\s*sendBeacon/]
+    expect(FILES.filter((file) => !file.rel.startsWith('api/') && patterns.some((pattern) => pattern.test(file.text))).map((file) => file.rel)).toEqual([])
   })
-
-  it('references no remote origin', () => {
-    const offenders: string[] = []
-    for (const file of FILES) {
-      // Documentation links inside comments are fine; anything in code is not.
-      const withoutComments = file.text
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/(^|\s)\/\/.*$/gm, '')
-      const matches = withoutComments.match(/https?:\/\/[^\s'"`)]+/g) ?? []
-      // The SVG namespace is a spec identifier, not a network fetch.
-      const real = matches.filter((url) => !url.startsWith('http://www.w3.org/'))
-      if (real.length) offenders.push(`${file.rel}: ${real.join(', ')}`)
-    }
-    expect(offenders).toEqual([])
+  it('never imports Worker code into the frontend', () => {
+    expect(FILES.filter((file) => importsOf(file.text).some((spec) => /(?:^|\/)worker\//.test(spec))).map((file) => file.rel)).toEqual([])
   })
-
-  it('carries no credential-shaped strings', () => {
-    // The briefing ships a live Postgres URL; it must never reach the bundle.
-    const patterns = [/postgres(?:ql)?:\/\//i, /\bnpg_[A-Za-z0-9]{8,}/, /neondb_owner/i]
-    const offenders: string[] = []
-    for (const file of FILES) {
-      for (const re of patterns) {
-        if (re.test(file.text)) offenders.push(`${file.rel}: ${re.source}`)
-      }
-    }
-    expect(offenders).toEqual([])
+  it('excludes API routes from the app shell', () => {
+    const sw = FILES.find((file) => file.rel === 'sw.ts')!.text
+    expect(sw).toContain('denylist: [/^\\/api(?:\\/|$)/]')
+    expect(sw).not.toContain('registerRoute(/')
+  })
+  it('contains no credential-shaped strings in repository text, including Worker code', () => {
+    const root = resolve(SRC, '..')
+    expect(credentialFiles(root)).toEqual([])
   })
 })
