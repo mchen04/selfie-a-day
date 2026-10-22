@@ -117,5 +117,3 @@ Browser tests do not prove physical iPhone push delivery or camera torch behavio
 | `worker/migrations` | Local and production D1 schema |
 | `docs/api-contract.md` | Client/Worker contract map and regression coverage |
 
-Earlier design research and verification notes remain in `docs/` as historical records.
-This README and the API contract map describe the account-based product.

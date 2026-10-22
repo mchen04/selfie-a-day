@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { applicationServerKey, deviceTimeZone, pushState, resyncDevice, subscribeDevice, unsubscribeDevice } from '../../../src/push/client.ts'
+import { applicationServerKey, pushState, resyncDevice, subscribeDevice, unsubscribeDevice } from '../../../src/push/client.ts'
+import { resolvedTimeZone } from '../../../src/core/day.ts'
 import { pushEnvironment } from './environment.ts'
 
 afterEach(() => { localStorage.clear(); vi.unstubAllGlobals() })
@@ -50,7 +51,7 @@ describe('device subscriptions', () => {
     expect(env.manager.subscribe).toHaveBeenCalledWith({ userVisibleOnly: true, applicationServerKey: new Uint8Array([4, 1, 2, 3, 4]) })
     const [path, init] = env.request.mock.calls.at(-1)!
     expect(path).toBe('/api/push/subscription')
-    expect(JSON.parse(init?.body as string)).toEqual({ endpoint: env.subscription.endpoint, keys: env.subscription.toJSON().keys, timeZone: deviceTimeZone() })
+    expect(JSON.parse(init?.body as string)).toEqual({ endpoint: env.subscription.endpoint, keys: env.subscription.toJSON().keys, timeZone: resolvedTimeZone() })
     expect(init?.credentials).toBe('same-origin')
     expect(new Headers(init?.headers).get('X-Selfie-CSRF')).toBe('1')
   })

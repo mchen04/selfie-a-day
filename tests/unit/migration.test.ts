@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DB_NAME, DB_VERSION, openDatabase, SCHEMA_MIGRATIONS, promisifyRequest } from '../../src/storage/db.ts'
+import { DB_NAME, openDB, promisifyRequest } from '../../src/storage/db.ts'
 
 describe('cloud storage upgrade', () => {
   for (const version of [1, 2]) {
@@ -18,7 +18,7 @@ describe('cloud storage upgrade', () => {
       tx.objectStore('thumbs').put(new ArrayBuffer(8), 'legacy')
       await new Promise<void>((resolve) => { tx.oncomplete = () => resolve() })
       legacy.close()
-      const upgraded = await openDatabase(DB_NAME, DB_VERSION, SCHEMA_MIGRATIONS)
+      const upgraded = await openDB()
       expect([...upgraded.objectStoreNames]).toEqual(['ghosts', 'kv', 'outbox'])
       for (const name of upgraded.objectStoreNames) {
         expect(await promisifyRequest(upgraded.transaction(name).objectStore(name).count())).toBe(0)

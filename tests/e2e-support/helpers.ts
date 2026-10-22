@@ -4,35 +4,22 @@ import { resolve } from 'node:path'
 import { createAccount, snapshot } from './api.ts'
 import { offlineReadiness } from './offline.ts'
 
-/**
- * Evidence lives outside the repository, per the project's convention that
- * screenshots are artefacts rather than source.
- */
-export const EVIDENCE_DIR =
-  process.env.E2E_EVIDENCE_DIR ??
-  '/private/tmp/claude-501/-Users-michaelchen-Projects-Apps-Selfie-a-day/0089a9e6-57aa-4716-b0a5-aac4608effa6/scratchpad/evidence'
+/** Screenshots are artefacts, not source; they go to the ignored test-results directory. */
+const EVIDENCE_DIR = resolve(process.env.E2E_EVIDENCE_DIR ?? 'test-results/e2e-evidence')
 
 export function evidencePath(name: string): string {
   mkdirSync(EVIDENCE_DIR, { recursive: true })
   return resolve(EVIDENCE_DIR, name)
 }
 
-export async function shot(page: Page, name: string): Promise<string> {
-  const path = evidencePath(name)
-  await page.screenshot({ path })
-  return path
-}
-
 /**
- * Skip onboarding for tests that are about something else.
+ * Sign in a new synthetic account for tests that are about something else.
  *
- * Waits for the boot state to resolve before deciding anything. The app renders
- * a spinner until settings load, so asking "is the onboarding button visible?"
- * too early answers "no" for a reason that has nothing to do with onboarding —
- * the click gets skipped and the test then waits forever for a capture screen
- * that is sitting behind the onboarding it never dismissed.
+ * Waits for the boot state to resolve first: the app shows a spinner until its
+ * stored session is read, and checking for the account screen during that
+ * spinner would skip the sign-in and leave the test waiting for the camera.
  */
-export async function completeOnboarding(page: Page): Promise<void> {
+export async function ensureSignedIn(page: Page): Promise<void> {
   await expect(page.locator('[data-testid="account-screen"], [data-testid="capture-screen"], [data-testid="boot-error"]').first()).toBeVisible({ timeout: 20_000 })
   if (await page.getByTestId('account-screen').isVisible()) {
     await createAccount(page.request)
@@ -113,11 +100,6 @@ export async function captureOnce(page: Page, waitForUpload = true): Promise<str
   return created!
 }
 
-/** Read the photo count straight out of IndexedDB, not out of the UI. */
-export async function countPhotos(page: Page): Promise<number> {
-  return (await listStoredPhotos(page)).length
-}
-
 export interface StoredPhotoInfo {
   id: string
   albumId?: string
@@ -160,18 +142,6 @@ export async function listStoredPhotos(
       return [...photos.values()].filter((photo) => includeDeleted || photo.deletedAt == null).sort((a, b) => b.capturedAt - a.capturedAt)
     } finally { db.close() }
   }, options.includeDeleted === true)
-}
-
-export async function delayCanvasEncoding(page: Page, milliseconds: number): Promise<void> {
-  await page.evaluate((delay) => {
-    const originalToBlob = Object.getOwnPropertyDescriptor(
-      HTMLCanvasElement.prototype,
-      'toBlob',
-    )?.value as HTMLCanvasElement['toBlob']
-    HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {
-      window.setTimeout(() => originalToBlob.call(this, callback, type, quality), delay)
-    }
-  }, milliseconds)
 }
 
 /**

@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test'
-import { completeOnboarding } from '../e2e-support/helpers.ts'
+import { ensureSignedIn } from '../e2e-support/helpers.ts'
 import { seedPhoto } from '../e2e-support/api.ts'
 
 test('server masters play and export as a video', async ({ page }) => {
   await page.goto('/')
-  await completeOnboarding(page)
+  await ensureSignedIn(page)
   await seedPhoto(page, '2026-08-08')
   await seedPhoto(page, '2026-08-09')
   await page.goto('/timeline')
@@ -21,7 +21,7 @@ test('server masters play and export as a video', async ({ page }) => {
 
 test('video export can be cancelled while a master is loading', async ({ page }) => {
   await page.goto('/')
-  await completeOnboarding(page)
+  await ensureSignedIn(page)
   await seedPhoto(page, '2026-08-08')
   await seedPhoto(page, '2026-08-09')
   await page.goto('/timeline')
@@ -38,7 +38,7 @@ test('video export can be cancelled while a master is loading', async ({ page })
 
 test('date ranges and date labels work with synced photos', async ({ page }) => {
   await page.goto('/')
-  await completeOnboarding(page)
+  await ensureSignedIn(page)
   for (const day of ['2025-08-09', '2026-06-08', '2026-08-08', '2026-08-09']) await seedPhoto(page, day)
   await page.goto('/timeline')
   await page.getByTestId('play-timelapse').click()

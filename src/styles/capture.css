@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------
-   Capture frame, timeline, settings and onboarding.
+   Capture frame, timeline and settings.
    --------------------------------------------------------------------------- */
 
 /* --- The frame ------------------------------------------------------------ */
@@ -549,12 +549,6 @@
   color: var(--danger);
   border-color: rgb(255 122 112 / 30%);
   background: rgb(255 122 112 / 8%);
-}
-
-.banner--warn {
-  color: var(--warn);
-  border-color: rgb(255 196 107 / 30%);
-  background: rgb(255 196 107 / 8%);
 }
 
 .banner--update {
@@ -1143,148 +1137,8 @@
   cursor: default;
 }
 
-.facts {
-  margin: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px 14px;
-}
-
-.facts > div {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.facts dt {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.facts dd {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 650;
-}
-
-.iconbtn[data-danger='true'] {
-  color: var(--danger);
-  background: rgb(255 122 112 / 12%);
-}
-
-/* --- Onboarding ----------------------------------------------------------- */
-
-.onboarding__body {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: calc(var(--safe-top) + 40px) calc(var(--safe-right) + 26px) 20px
-    calc(var(--safe-left) + 26px);
-}
-
 /* flex: none matters. As a column flex item this shrinks along the main axis
    when the page is tight, which squashed the circular rings into ellipses. */
-.onboarding__mark {
-  position: relative;
-  width: 84px;
-  height: 84px;
-  flex: none;
-  margin-bottom: 6px;
-}
-
-.onboarding__ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border: 3px solid var(--text);
-}
-
-.onboarding__ring--ghost {
-  border-color: rgb(94 224 184 / 55%);
-  transform: translate(-11px, -9px);
-}
-
-.onboarding__dot {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 13px;
-  height: 13px;
-  margin: -6.5px 0 0 -6.5px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
-.onboarding__title {
-  margin: 0;
-  font-size: 30px;
-  line-height: 1.12;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.onboarding__lede {
-  margin: 0;
-  font-size: 15.5px;
-  line-height: 1.5;
-  color: var(--muted);
-  max-width: 34ch;
-}
-
-.onboarding__points {
-  list-style: none;
-  margin: 10px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.onboarding__points li {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  color: var(--accent);
-}
-
-.onboarding__points li > svg {
-  flex: none;
-}
-
-.onboarding__points div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  color: var(--text);
-}
-
-.onboarding__points strong {
-  font-size: 14.5px;
-  font-weight: 650;
-}
-
-.onboarding__points span {
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.onboarding__install {
-  margin: 8px 0 0;
-  padding: 12px 14px;
-  border-radius: var(--radius);
-  border: 1px dashed var(--line-strong);
-}
-
-.onboarding__foot {
-  flex: none;
-  padding: 12px calc(var(--safe-right) + 26px) calc(var(--safe-bottom) + 22px)
-    calc(var(--safe-left) + 26px);
-}
-
-.onboarding__foot-note {
-  margin: 8px 0 0;
-  text-align: center;
-}
 
 /* --- Frame as shutter ------------------------------------------------------ */
 
@@ -1298,33 +1152,6 @@
   cursor: pointer;
 }
 
-
-/* --- Backup nudge ---------------------------------------------------------- */
-
-.banner--nudge {
-  color: var(--warn);
-  border-color: rgb(255 196 107 / 28%);
-  background: rgb(255 196 107 / 7%);
-  gap: 8px;
-}
-
-/* Two lines at most. The live preview is the reason the app exists, so an
-   advisory must stay small — but a warning truncated mid-sentence creates
-   anxiety without conveying the risk, which is worse than not showing it. */
-.banner--nudge span {
-  flex: 1;
-  min-width: 0;
-  color: var(--text);
-  display: -webkit-box;
-  /* Three lines so the sentence still completes on a 320px-wide phone. */
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  line-height: 1.35;
-}
-
-
 .banner__link {
   min-height: var(--tap);
   min-width: var(--tap);
@@ -1334,14 +1161,6 @@
   font-weight: 650;
   color: var(--warn);
   flex: none;
-}
-
-.banner__link--icon {
-  color: var(--muted);
-  padding: 0;
-  width: var(--tap);
-  display: grid;
-  place-items: center;
 }
 
 /* --- Timelapse playback ----------------------------------------------------- */
@@ -1453,19 +1272,4 @@
   min-width: var(--tap);
   min-height: var(--tap);
   font-size: 12.5px;
-}
-
-.card--inset {
-  background: var(--surface-2);
-  border-radius: var(--radius);
-  padding: 12px;
-}
-
-.problems {
-  margin: 6px 0 0;
-  padding-left: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: var(--warn);
 }

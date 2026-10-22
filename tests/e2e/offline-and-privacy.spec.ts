@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test'
-import { captureOnce, completeOnboarding, waitForCameraLive, waitForOfflineReady } from '../e2e-support/helpers.ts'
+import { captureOnce, ensureSignedIn, waitForCameraLive, waitForOfflineReady } from '../e2e-support/helpers.ts'
 
 test('cached account and metadata open offline without caching API responses in the service worker', async ({ page, context }) => {
   await page.goto('/')
-  await completeOnboarding(page)
+  await ensureSignedIn(page)
   await waitForCameraLive(page)
   await captureOnce(page)
   await waitForOfflineReady(page)

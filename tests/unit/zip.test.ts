@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { createZip, crc32, readZip, ZipError, type Bytes } from '../../src/storage/zip.ts'
+import { createZip, crc32, ZipError, type Bytes } from '../../src/storage/zip.ts'
+import { readZip } from '../support/zip.ts'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()

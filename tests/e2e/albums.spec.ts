@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test'
-import { captureOnce, completeOnboarding, listStoredPhotos, waitForCameraLive } from '../e2e-support/helpers.ts'
+import { captureOnce, ensureSignedIn, listStoredPhotos, waitForCameraLive } from '../e2e-support/helpers.ts'
 import { snapshot } from '../e2e-support/api.ts'
 
 test('server albums keep separate daily photos and save their name and zone', async ({ page }) => {
   await page.goto('/')
-  await completeOnboarding(page)
+  await ensureSignedIn(page)
   await waitForCameraLive(page)
   await captureOnce(page)
   await page.getByTestId('nav-settings').click()

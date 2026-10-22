@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test'
-import { completeOnboarding } from '../e2e-support/helpers.ts'
+import { ensureSignedIn } from '../e2e-support/helpers.ts'
 import { seedPhoto, snapshot } from '../e2e-support/api.ts'
 
 test('failed optimistic trash restores the photo and shows an error', async ({ page }) => {
   await page.goto('/')
-  await completeOnboarding(page)
+  await ensureSignedIn(page)
   const photo = await seedPhoto(page, '2026-08-09')
   await page.goto(`/photo/${photo.id}`)
   await page.route(`**/api/photos/${photo.id}`, async (route) => {
@@ -18,7 +18,7 @@ test('failed optimistic trash restores the photo and shows an error', async ({ p
 
 test('download failure clears progress and lets the user retry', async ({ page }) => {
   await page.goto('/')
-  await completeOnboarding(page)
+  await ensureSignedIn(page)
   await seedPhoto(page, '2026-08-09')
   await seedPhoto(page, '2026-08-08')
   await page.goto('/settings')
@@ -31,7 +31,7 @@ test('download failure clears progress and lets the user retry', async ({ page }
 test('the file camera fallback compresses and uploads a picked image', async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: undefined }))
   await page.goto('/')
-  await completeOnboarding(page)
+  await ensureSignedIn(page)
   await expect(page.getByTestId('shutter')).toHaveAttribute('data-mode', 'file')
   const bytes = await page.evaluate(async () => {
     const canvas = document.createElement('canvas')

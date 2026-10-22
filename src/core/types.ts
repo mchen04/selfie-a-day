@@ -1,6 +1,6 @@
 import type { DayKey } from './day.ts'
 
-/** Stable home for every photo created before albums existed. */
+/** The album the server creates on an account's first sync. */
 export const DEFAULT_ALBUM_ID = 'selfies'
 
 /**
@@ -47,11 +47,6 @@ export interface StoredImage {
   /** ArrayBuffer, not Blob: structured-clone of Blobs into IndexedDB has a long
    * history of WebKit bugs, and iOS Safari is this app's hard target. */
   bytes: ArrayBuffer
-}
-
-export interface Photo {
-  meta: PhotoMeta
-  master: StoredImage
 }
 
 export type GridStyle = 'thirds' | 'crosshair' | 'off'

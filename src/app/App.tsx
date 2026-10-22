@@ -27,9 +27,9 @@ export function App() {
     return () => { cancelled = true }
   }, [status, albumLink, albums, actions])
 
-  // Hold the first paint until settings are known. Rendering onboarding for a
-  // frame and then swapping to the camera makes a returning user think their
-  // history is gone, which is the worst possible first impression for this app.
+  // Hold the first paint until the stored session is read. Showing the account
+  // screen for a frame and then swapping to the camera would make a returning
+  // user think they were signed out.
   if (status === 'loading') {
     return (
       <div className="screen boot" data-testid="boot">

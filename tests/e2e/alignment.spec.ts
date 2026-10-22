@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { computeCoverCrop, FRAME_ASPECT } from '../../src/core/geometry.ts'
 import {
   captureOnce,
-  completeOnboarding,
+  ensureSignedIn,
   dominantChannel,
   evidencePath,
   gotoApp,
@@ -51,7 +51,7 @@ function expectedFramePosition(
 test.describe('coordinate space', () => {
   test.beforeEach(async ({ page }) => {
     await gotoApp(page)
-    await completeOnboarding(page)
+    await ensureSignedIn(page)
     await waitForCameraLive(page)
   })
 
@@ -206,10 +206,8 @@ test.describe('coordinate space', () => {
   })
 
   /**
-   * Raised independently in all four code-quality cycles. Toggling Mirror is a
-   * viewing preference; it must not split the archive into two mirroring
-   * spaces, because the timelapse would then flip halfway through — the exact
-   * complaint quoted from a real review in docs/research.md.
+   * Toggling Mirror is a viewing preference; it must not split the archive into
+   * two mirroring spaces, because the timelapse would then flip halfway through.
    */
   test('toggling Mirror never splits the library into two spaces', async ({ page }) => {
     await captureOnce(page)

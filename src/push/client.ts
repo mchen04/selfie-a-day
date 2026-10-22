@@ -1,5 +1,6 @@
 import { api, type PushSubscriptionData } from '../api/client.ts'
 import { isIOS, isStandalone } from '../camera/support.ts'
+import { resolvedTimeZone } from '../core/day.ts'
 
 export type PushState = NotificationPermission | 'unsupported' | 'not-installed'
 
@@ -7,10 +8,6 @@ export function pushState(): PushState {
   if (isIOS() && !isStandalone()) return 'not-installed'
   if (!('serviceWorker' in navigator) || typeof PushManager === 'undefined' || typeof Notification === 'undefined') return 'unsupported'
   return Notification.permission
-}
-
-export function deviceTimeZone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone
 }
 
 export function applicationServerKey(publicKey: string): Uint8Array<ArrayBuffer> {
@@ -21,7 +18,7 @@ export function applicationServerKey(publicKey: string): Uint8Array<ArrayBuffer>
 export function subscriptionData(subscription: PushSubscription): PushSubscriptionData {
   const keys = subscription.toJSON().keys
   if (!keys?.p256dh || !keys.auth) throw new Error('Could not read the reminder subscription. Try again.')
-  return { endpoint: subscription.endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth }, timeZone: deviceTimeZone() }
+  return { endpoint: subscription.endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth }, timeZone: resolvedTimeZone() }
 }
 
 // The last subscription this device sent, so app starts and visibility changes

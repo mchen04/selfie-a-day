@@ -8,7 +8,6 @@ import {
   isDayKey,
   isValidTimeZone,
   resolvedTimeZone,
-  timeZoneOffsetMinutes,
 } from '../../src/core/day.ts'
 
 describe('dayKeyOf', () => {
@@ -34,12 +33,6 @@ describe('dayKeyOf', () => {
     const instant = new Date('2026-08-09T16:30:00Z')
     expect(dayKeyOf(instant, 'Asia/Tokyo')).toBe('2026-08-10')
     expect(dayKeyOf(instant, 'America/Los_Angeles')).toBe('2026-08-09')
-  })
-
-  it('reports the correct offset for the album timezone', () => {
-    const instant = new Date('2026-08-09T16:30:00Z')
-    expect(timeZoneOffsetMinutes(instant, 'Asia/Tokyo')).toBe(-540)
-    expect(timeZoneOffsetMinutes(instant, 'America/Los_Angeles')).toBe(420)
   })
 
   it('detects a valid system timezone', () => {

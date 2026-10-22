@@ -96,8 +96,7 @@ button,
 
 .row__hint,
 .tiny,
-.frame__overlay-body,
-[data-testid='privacy-statement'] {
+.frame__overlay-body {
   -webkit-user-select: text;
   user-select: text;
 }

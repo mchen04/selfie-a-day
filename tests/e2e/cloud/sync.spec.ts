@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { captureOnce, completeOnboarding, listStoredPhotos, waitForCameraLive } from '../../e2e-support/helpers.ts'
+import { captureOnce, ensureSignedIn, listStoredPhotos, waitForCameraLive } from '../../e2e-support/helpers.ts'
 import { createAccount, seedPhoto, signIn, snapshot, syncPage } from '../../e2e-support/api.ts'
 
 test('a second device sees uploads and retakes replace the day on both devices', async ({ page, browser }) => {
@@ -43,7 +43,7 @@ test('another account sees neither the timeline nor a guessed photo URL', async 
 
 test('an offline capture queues locally and uploads after reconnect', async ({ page, context }) => {
   await page.goto('/')
-  await completeOnboarding(page)
+  await ensureSignedIn(page)
   await waitForCameraLive(page)
   await context.setOffline(true)
   const id = await captureOnce(page)
@@ -59,7 +59,7 @@ test('an offline capture queues locally and uploads after reconnect', async ({ p
 
 test('logout warns once about pending photos and clears local account data', async ({ page }) => {
   await page.goto('/')
-  await completeOnboarding(page)
+  await ensureSignedIn(page)
   await waitForCameraLive(page)
   await page.route('**/api/photos/*', async (route) => {
     if (route.request().method() === 'PUT') await route.abort()

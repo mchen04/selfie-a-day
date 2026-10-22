@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test'
-import { completeOnboarding } from '../e2e-support/helpers.ts'
+import { ensureSignedIn } from '../e2e-support/helpers.ts'
 import { seedPhoto } from '../e2e-support/api.ts'
 import { readFile } from 'node:fs/promises'
-import { readZip } from '../../src/storage/zip.ts'
+import { readZip } from '../support/zip.ts'
 
 test('a fresh page loads server photos and downloads a normal ZIP', async ({ page }) => {
   await page.goto('/')
-  await completeOnboarding(page)
+  await ensureSignedIn(page)
   const first = await seedPhoto(page, '2026-08-08')
   const second = await seedPhoto(page, '2026-08-09')
   await page.goto('/timeline')

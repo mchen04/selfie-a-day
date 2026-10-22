@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { downloadPhotos } from '../../../src/storage/download.ts'
-import { readZip } from '../../../src/storage/zip.ts'
+import { readZip } from '../../support/zip.ts'
 import { defaultAlbum } from '../../../src/core/albums.ts'
 import { photo } from './fixtures.ts'
 

@@ -29,13 +29,3 @@ export function newPhotoId(capturedAt: number = Date.now()): string {
 export function newAlbumId(createdAt: number = Date.now()): string {
   return `album-${newPhotoId(createdAt)}`
 }
-
-const ID_RE = new RegExp(`^[0-9a-z]{${TIME_DIGITS + RANDOM_DIGITS}}$`)
-
-export function isPhotoId(value: unknown): value is string {
-  return typeof value === 'string' && ID_RE.test(value)
-}
-
-export function isAlbumId(value: unknown): value is string {
-  return typeof value === 'string' && (value === 'selfies' || /^album-[0-9a-z]{20}$/.test(value))
-}

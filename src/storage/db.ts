@@ -1,23 +1,22 @@
 export const DB_NAME = 'selfie-a-day'
-export const DB_VERSION = 3
+const DB_VERSION = 3
 export const STORE_META = 'kv'
 export const STORE_OUTBOX = 'outbox'
 export const STORE_GHOSTS = 'ghosts'
 
-type Migration = (db: IDBDatabase, tx: IDBTransaction) => void
-
-export const SCHEMA_MIGRATIONS: readonly Migration[] = [
-  () => {},
-  () => {},
-  (db) => {
-    for (const name of [...db.objectStoreNames]) db.deleteObjectStore(name)
-    db.createObjectStore(STORE_META)
-    db.createObjectStore(STORE_OUTBOX, { keyPath: ['userId', 'meta.id'] }).createIndex('by_user', 'userId')
-    const ghosts = db.createObjectStore(STORE_GHOSTS, { keyPath: ['userId', 'albumId'] })
-    ghosts.createIndex('by_user', 'userId')
-    ghosts.createIndex('by_image', ['userId', 'image.id'])
-  },
-]
+/**
+ * Versions 1 and 2 held the local-only library, which the account's server copy
+ * replaces, so opening version 3 drops every store and starts the account cache
+ * empty. A version 4 must migrate from 3 instead: the outbox holds unsent photos.
+ */
+function upgrade(db: IDBDatabase): void {
+  for (const name of [...db.objectStoreNames]) db.deleteObjectStore(name)
+  db.createObjectStore(STORE_META)
+  db.createObjectStore(STORE_OUTBOX, { keyPath: ['userId', 'meta.id'] }).createIndex('by_user', 'userId')
+  const ghosts = db.createObjectStore(STORE_GHOSTS, { keyPath: ['userId', 'albumId'] })
+  ghosts.createIndex('by_user', 'userId')
+  ghosts.createIndex('by_image', ['userId', 'image.id'])
+}
 
 export class StorageUnavailableError extends Error {
   override name = 'StorageUnavailableError'
@@ -61,21 +60,7 @@ export function indexedDBAvailable(): boolean {
   }
 }
 
-/**
- * Open a database at `version`, climbing the ladder from whatever version is
- * already on disk.
- *
- * Parameterised rather than hard-wired so tests can exercise a real upgrade —
- * write at version N, reopen at N+1 with an extra rung, and prove the photos
- * are still there. An upgrade path that has never actually been run is a claim,
- * not a guarantee, and this is the one code path where being wrong costs a user
- * their entire history.
- */
-export function openDatabase(
-  name: string,
-  version: number,
-  migrations: readonly Migration[],
-): Promise<IDBDatabase> {
+function openDatabase(): Promise<IDBDatabase> {
   return new Promise<IDBDatabase>((resolve, reject) => {
     if (!indexedDBAvailable()) {
       reject(
@@ -86,18 +71,8 @@ export function openDatabase(
       return
     }
 
-    const request = indexedDB.open(name, version)
-
-    request.onupgradeneeded = (event) => {
-      const db = request.result
-      const tx = request.transaction
-      if (!tx) throw new Error('Upgrade transaction missing')
-      for (let v = event.oldVersion; v < (event.newVersion ?? version); v++) {
-        const migrate = migrations[v]
-        if (!migrate) throw new Error(`No migration from schema version ${v}`)
-        migrate(db, tx)
-      }
-    }
+    const request = indexedDB.open(DB_NAME, DB_VERSION)
+    request.onupgradeneeded = () => upgrade(request.result)
 
     request.onsuccess = () => {
       const db = request.result
@@ -118,15 +93,12 @@ export function openDatabase(
 let dbPromise: Promise<IDBDatabase> | null = null
 
 export function openDB(): Promise<IDBDatabase> {
-  dbPromise ??= openDatabase(DB_NAME, DB_VERSION, SCHEMA_MIGRATIONS).catch((err: unknown) => {
+  dbPromise ??= openDatabase().catch((err: unknown) => {
     dbPromise = null
     throw err
   })
   return dbPromise
 }
-
-/** The shipped ladder, exposed so tests can extend it with a future rung. */
-
 
 /**
  * Drop the cached connection so the next call opens a fresh one.

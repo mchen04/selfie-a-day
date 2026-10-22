@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test'
-import { completeOnboarding } from '../e2e-support/helpers.ts'
+import { ensureSignedIn } from '../e2e-support/helpers.ts'
 import { seedPhoto, snapshot } from '../e2e-support/api.ts'
 
 test('trash, undo, restore, and permanently delete a server photo', async ({ page }) => {
   await page.goto('/')
-  await completeOnboarding(page)
+  await ensureSignedIn(page)
   const photo = await seedPhoto(page, '2026-08-09')
   await page.goto(`/photo/${photo.id}`)
   await page.getByTestId('photo-delete').click()
@@ -31,7 +31,7 @@ test('trash, undo, restore, and permanently delete a server photo', async ({ pag
 
 test('Empty requires an inline second tap before deleting server photos', async ({ page }) => {
   await page.goto('/')
-  await completeOnboarding(page)
+  await ensureSignedIn(page)
   const photo = await seedPhoto(page, '2026-08-09')
   await page.goto(`/photo/${photo.id}`)
   await page.getByTestId('photo-delete').click()
@@ -48,7 +48,7 @@ test('Empty requires an inline second tap before deleting server photos', async 
 
 test('a delayed restore stays visible until a full navigation can read the restored photo', async ({ page }) => {
   await page.goto('/')
-  await completeOnboarding(page)
+  await ensureSignedIn(page)
   const photo = await seedPhoto(page, '2026-08-09')
   await page.goto(`/photo/${photo.id}`)
   await page.getByTestId('photo-delete').click()

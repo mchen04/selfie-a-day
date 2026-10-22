@@ -74,8 +74,7 @@ export function CaptureScreen() {
    * It follows the library, not the Mirror setting. Mirroring the preview is a
    * *viewing* preference; letting it change the stored space means toggling it
    * mid-project leaves a library in two spaces and a timelapse that flips
-   * left-to-right at the boundary — the failure this app exists to prevent,
-   * quoted from a real review in docs/research.md.
+   * left-to-right at the boundary — the failure this app exists to prevent.
    *
    * Alignment is unaffected: the ghost is rendered into whatever space the
    * preview is in, so the user still lines up against what they see, and the

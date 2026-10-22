@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test'
-import { captureOnce, completeOnboarding, gotoApp, waitForCameraLive } from '../e2e-support/helpers.ts'
+import { captureOnce, ensureSignedIn, gotoApp, waitForCameraLive } from '../e2e-support/helpers.ts'
 
 test('save a photo, browse it, and return to its ghost', async ({ page }) => {
   await gotoApp(page)
-  await completeOnboarding(page)
+  await ensureSignedIn(page)
   await waitForCameraLive(page)
   const id = await captureOnce(page)
   await expect(page.getByTestId('ghost-image')).toBeVisible()

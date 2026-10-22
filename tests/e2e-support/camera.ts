@@ -1,6 +1,6 @@
 import { expect, type Page } from '@playwright/test'
 import { snapshot } from './api.ts'
-import { completeOnboarding, gotoApp, waitForCameraLive } from './helpers.ts'
+import { ensureSignedIn, gotoApp, waitForCameraLive } from './helpers.ts'
 
 export interface CameraPhoto {
   id: string
@@ -13,7 +13,7 @@ export interface CameraPhoto {
 
 export async function openCamera(page: Page, live = true) {
   await gotoApp(page)
-  await completeOnboarding(page)
+  await ensureSignedIn(page)
   if (live) await waitForCameraLive(page)
 
   return {

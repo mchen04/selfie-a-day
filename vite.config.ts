@@ -1,18 +1,13 @@
-import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
-
-const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {
-  version: string
-}
 
 export default defineConfig({
   plugins: [
     react(),
     VitePWA({
       // injectManifest (not generateSW) so the service worker is hand-written and
-      // auditable — gate 4 requires proving an SW update cannot touch photo data.
+      // auditable: an update replaces the app shell and never touches stored photos.
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
@@ -49,9 +44,6 @@ export default defineConfig({
       },
     }),
   ],
-  define: {
-    __APP_VERSION__: JSON.stringify(pkg.version),
-  },
   build: {
     target: 'es2022',
     sourcemap: true,
