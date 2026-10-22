@@ -16,6 +16,8 @@ npx vite build
 UX_EVIDENCE_DIR=test-results/ux-after npx playwright test -c playwright.ux.config.ts --workers=3 --reporter=line,./tests/e2e/ux/reporter.ts
 ```
 
+`npm run test:ux` runs the same config with one worker and the evidence reporter, writing to `UX_EVIDENCE_DIR` (default `test-results/ux`).
+
 Set `E2E_BASE_URL` to use an existing preview. Without it, the runner starts a preview of the existing build. It does not build or start a Worker.
 
 UX files use the `.ux.ts` suffix. Only this config collects them. The main suite keeps its existing test list.

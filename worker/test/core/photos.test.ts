@@ -66,7 +66,7 @@ describe('albums, photo storage, trash, and delta sync in workerd', () => {
     const unicodeDuplicate = await h.request(`/api/albums/album-${photoId(92)}`, { method: 'PUT', cookie: user.cookie, json: { name: 'été', timeZone: null } })
     expect(unicodeDuplicate.status).toBe(409)
     expect(await unicodeDuplicate.json()).toEqual({ error: 'album_name_taken' })
-    // Offset zones are refused here as they are for reminders, so an album's zone always works for its reminder.
+    // Offset zones are refused here as they are for device subscriptions: every stored zone is an IANA name.
     for (const body of [{ name: '', timeZone: null }, { name: 'a'.repeat(41), timeZone: null }, { name: 'Other', timeZone: 'Mars/Nope' }, { name: 'Other', timeZone: '+01:00' }]) {
       expect((await h.request(path, { method: 'PUT', cookie: user.cookie, json: body })).status).toBe(400)
     }

@@ -201,8 +201,9 @@ Timing evidence names that fallback. It includes Playwright's action checks and 
 These endpoints run independently. The original local-only app reports only `savedMs` and retains its reason for missing upload metrics.
 `uploadRequestBytes` uses Content-Length or complete CDP post data, including multipart framing and metadata.
 Incomplete multipart data never becomes a zero-byte upload. Missing byte counts become error samples.
-`uploadResponseBytes` counts the encoded response body. `uploadMasterBytes` and `uploadThumbBytes` record file sizes when visible.
-The upload response's photo DTO confirms those part sizes. Evidence records each byte count's source.
+`uploadResponseBytes` counts the encoded response body. Evidence records each byte count's source.
+`uploadMasterBytes` and `uploadThumbBytes` come from `masterBytes` and `thumbBytes` in the upload response's photo DTO.
+The current API no longer sends those fields (docs/data-flow.md), so current builds report neither metric; `uploadRequestBytes` still covers the upload.
 Timeline waits for all 60 cells and decodes only thumbnails that intersect the viewport.
 Polling stays synchronous while decoding runs. The finish mark uses the same browser clock as the action start.
 Snapshot time includes network transfer; JSON parsing follows timing. Its decoded `bodyBytes` and compressed wire `transferBytes` differ.
