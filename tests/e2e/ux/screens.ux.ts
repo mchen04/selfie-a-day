@@ -115,6 +115,18 @@ test('photo: saved image and undo', async ({ page }, info) => {
   await captureUx(page, info, 'photo-undo', '[data-testid="undo-trash-action"]')
 })
 
+// Trash rows render before their thumbnails load, and the image decodes
+// asynchronously, so screenshots wait until every row's image is ready to paint.
+async function trashThumbnails(page: Page) {
+  const count = () => page.getByTestId('trash-item').evaluateAll((rows) => ({
+    rows: rows.length,
+    loaded: rows.filter((row) => { const image = row.querySelector('img'); return !!image && image.complete && image.naturalWidth > 0 }).length,
+  }))
+  await expect.poll(async () => { const counts = await count(); return counts.rows > 0 && counts.loaded === counts.rows }).toBe(true)
+  await page.locator('[data-testid="trash-item"] img').evaluateAll((images) => Promise.all(images.map((image) => (image as HTMLImageElement).decode())))
+  return count()
+}
+
 for (const state of ['empty', 'items', 'empty-armed', 'delete-armed'] as const) {
   test(`trash: ${state}`, async ({ page }, info) => {
     await openUx(page, { trash: state === 'empty' ? 0 : 3 }, '/trash')
@@ -128,7 +140,7 @@ for (const state of ['empty', 'items', 'empty-armed', 'delete-armed'] as const) 
       await page.getByTestId('trash-delete-permanently').first().click()
       await expect(page.getByTestId('trash-delete-permanently').first()).toContainText('Delete forever?')
     }
-    await captureUx(page, info, `trash-${state}`)
+    await captureUx(page, info, `trash-${state}`, undefined, state === 'empty' ? {} : { thumbnails: await trashThumbnails(page) })
     if (state !== 'empty') await expect(page.getByTestId('trash-item')).toHaveCount(3)
     if (state === 'empty-armed') {
       await page.getByTestId('empty-trash').click()
