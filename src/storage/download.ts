@@ -1,3 +1,4 @@
+import { dayKeyOf } from '../core/day.ts'
 import type { Album, PhotoMeta } from '../core/types.ts'
 import { getMaster } from './images.ts'
 import { createZip, crc32, type ZipEntry } from './zip.ts'
@@ -15,7 +16,8 @@ export async function downloadPhotos(photos: readonly PhotoMeta[], albums: reado
       data: new Blob([bytes], { type: photo.mime }), size: bytes.length, crc: crc32(bytes), date: new Date(photo.capturedAt) })
     progress(index + 1, photos.length)
   }
-  return new File([createZip(entries)], `selfie-a-day-${new Date().toISOString().slice(0, 10)}.zip`, { type: 'application/zip' })
+  // Named for today on this device, like the photos' own day keys (the UTC date is tomorrow every evening in America).
+  return new File([createZip(entries)], `selfie-a-day-${dayKeyOf()}.zip`, { type: 'application/zip' })
 }
 
 export async function saveDownload(file: File): Promise<void> {

@@ -52,7 +52,10 @@ test('create an account, log out, and sign in with the same account', async ({ p
   await page.getByLabel('Username', { exact: true }).fill(username)
   await page.getByLabel('Password', { exact: true }).fill(password)
   await page.getByTestId('account-submit').click()
-  await expect(page.getByTestId('settings-screen')).toBeVisible()
+  // Signing in opens the camera, not the Settings screen logout was tapped on.
+  await expect(page.getByTestId('capture-screen')).toBeVisible()
+  await expect(page).toHaveURL(/\/$/)
+  await page.getByTestId('nav-settings').click()
   await expect(page.getByRole('heading', { name: username })).toBeVisible()
 })
 

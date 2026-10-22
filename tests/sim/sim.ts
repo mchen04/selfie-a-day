@@ -1,5 +1,5 @@
 import { request as playwrightRequest, type APIRequestContext } from '@playwright/test'
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { EVIDENCE_DIR, ORIGIN, OUTSIDER, OWNER, STATE_DIR, type SimAccount } from './config.ts'
 import { DAY_KEYS, at, dayLabel, simStamp } from './calendar.ts'
@@ -99,8 +99,24 @@ export class Day implements Journal {
     this.pending.add(work)
     void work.finally(() => this.pending.delete(work))
   }
+  /** Wait for request records still being written, at most 30 s (a stuck one is noted, never waited on forever). */
   async settle(): Promise<void> {
-    for (let round = 0; round < 5 && this.pending.size; round++) await Promise.allSettled([...this.pending])
+    const deadline = Date.now() + 30_000
+    for (let round = 0; round < 5 && this.pending.size; round++) {
+      const left = deadline - Date.now()
+      const done = await Promise.race([Promise.allSettled([...this.pending]).then(() => true), new Promise<false>((resolve) => setTimeout(() => resolve(false), Math.max(0, left)))])
+      if (!done) {
+        this.notes.push(`Harness: ${this.pending.size} request record(s) still pending after 30 s; continued without them`)
+        this.progress(`settle gave up on ${this.pending.size} pending record(s)`)
+        this.pending.clear()
+        return
+      }
+    }
+  }
+
+  /** One line per step start and end (real time), so a run that hangs shows where. */
+  progress(line: string): void {
+    appendFileSync(join(this.dir, 'progress.log'), `${new Date().toISOString()} ${simStamp(this.simNow())} ${line}\n`)
   }
 
   // --- Clock -----------------------------------------------------------------
@@ -183,6 +199,7 @@ export class Day implements Journal {
   async step<T>(name: string, feature: Feature, work: () => Promise<T>): Promise<T | undefined> {
     const previous = this.stepName
     this.stepName = name
+    this.progress(`start ${name}`)
     try { return await work() }
     catch (error) {
       this.check(`${name}: completed`, feature, false)
@@ -191,7 +208,10 @@ export class Day implements Journal {
         await device.screenshot(`failed-${name.replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 40)}`).catch(() => undefined)
       }
       return undefined
-    } finally { this.stepName = previous }
+    } finally {
+      this.progress(`end ${name}`)
+      this.stepName = previous
+    }
   }
 
   edge(text: string): void { this.edges.push(text) }

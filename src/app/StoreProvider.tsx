@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS, type Album, type Settings } from '../core/types.ts'
 import { cacheUser, cachedUser, clearUserData, forgetCachedUser } from '../storage/local.ts'
 import { loadSettings, saveSettings } from '../storage/settings.ts'
 import { SyncEngine, visiblePhotos, type SyncState } from '../sync/engine.ts'
+import { navigate, parseRoute } from './router.ts'
 import { AppContext, type AppContextValue } from './store-context.ts'
 
 export function StoreProvider({ children }: { children: ReactNode }) {
@@ -156,6 +157,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     signIn: async (username, password, create) => {
       startup.current?.abort()
       const response = await (create ? api.signup(username, password) : api.login(username, password))
+      // Signing in opens the camera, not the screen the last session left in the
+      // address (logging out from Settings keeps /settings). An album link is
+      // already the camera, so its ?album= survives. While signed out the
+      // account screen covers every route, so this change is never seen.
+      if (parseRoute(window.location.pathname).name !== 'capture') navigate({ name: 'capture' }, { replace: true })
       await openAccount(response.user, Promise.resolve(response))
     },
     logout,

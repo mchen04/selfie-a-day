@@ -239,8 +239,10 @@ export class Device {
       if (!start) return
       started.delete(request)
       // A failed request can still have had its response headers (Chromium reports 204 fetches as ERR_ABORTED).
-      const response = await request.response().catch(() => null)
-      const sizes = failure ? null : await request.sizes().catch(() => null)
+      // Both reads are bounded: a record never waits on Playwright for more than 5 s.
+      const bounded = <T>(work: Promise<T>) => Promise.race([work.catch(() => null), new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000))])
+      const response = await bounded(request.response())
+      const sizes = failure ? null : await bounded(request.sizes())
       const url = new URL(request.url())
       journal.request({
         seq: start.seq, context: this.name, step: start.step, at: start.at, ms: start.ms, method: request.method(),

@@ -53,13 +53,31 @@ beforeEach(async () => {
   await act(async () => { root.render(createElement(StoreProvider, null, createElement(Probe))); await Promise.resolve() })
   await ready('ready')
 })
-afterEach(async () => { await act(async () => { root.unmount(); await Promise.resolve() }); container.remove(); vi.unstubAllGlobals() })
+afterEach(async () => { await act(async () => { root.unmount(); await Promise.resolve() }); container.remove(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/') })
 
 async function expire() {
   user = null
   await act(async () => { await api.me().catch(() => undefined) })
   await ready('signed-out')
 }
+
+describe('signing in', () => {
+  it('opens the camera after logging out from Settings and signing back in', async () => {
+    window.history.pushState(null, '', '/settings')
+    await act(async () => { await app.actions.logout() })
+    await ready('signed-out')
+    await act(async () => { await app.actions.signIn(owner.username, crypto.randomUUID(), false) })
+    await ready('ready')
+    expect(window.location.pathname).toBe('/')
+  })
+  it('keeps an album link while signing in', async () => {
+    await expire()
+    window.history.replaceState(null, '', '/?album=selfies')
+    await act(async () => { await app.actions.signIn(owner.username, crypto.randomUUID(), false) })
+    await ready('ready')
+    expect(window.location.pathname + window.location.search).toBe('/?album=selfies')
+  })
+})
 
 describe('expired account sessions', () => {
   it('signs out after an upload finds another account and resumes only for the original owner', async () => {

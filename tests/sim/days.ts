@@ -55,9 +55,13 @@ async function phoneSees(day: Day, phone: Device, what: string): Promise<void> {
   })
 }
 
-async function evening(day: Day, phone: Device, album: string, nudge: Array<{ album: string; event: 'nudge' }> = []): Promise<void> {
+async function evening(day: Day, phone: Device, album: string, nudge: Array<{ album: string; event: 'nudge' }> = [], at2100?: () => Promise<void>): Promise<void> {
   await day.step('20:35 evening cron', 'push', () => cronExpect(day, '20:35', nudge,
     nudge.length ? 'evening nudge at 20:35 (one)' : 'no evening nudge at 20:35 (nothing missing)'))
+  if (at2100) {
+    await day.advance('21:00')
+    await at2100()
+  }
   await day.advance('21:30')
   await day.step('offline at night', 'offline', async () => {
     await offlineVisit(day, phone, album)
@@ -435,6 +439,7 @@ async function day6(day: Day): Promise<void> {
 async function day7(day: Day): Promise<void> {
   day.edge('Reminder still at 09:00 local on the first weekday after DST (09:05 PST)')
   day.edge('The phone inherits a desktop timer change only when that photo is newer than its own setting')
+  day.edge('Evening "Download my photos" at 21:00 PST, when the UTC date is already tomorrow: the ZIP is named for the local day')
   const gym = day.memo.need<string>('gym')
   const travel = day.memo.need<string>('travel')
   const phone = await day.phone('08:50', phonePush)
@@ -465,7 +470,7 @@ async function day7(day: Day): Promise<void> {
   await day.step('trash and undo the desktop Gym photo', 'trash', () => trashAndUndo(day, phone, photoOn(gym, day.dayKey), 'the desktop\'s Gym days photo'))
   await day.step('timelapse', 'timelapse', () => timelapse(day, phone, SELFIES))
   await day.step('switch back to Selfies', 'albums', () => switchAlbum(day, phone, SELFIES, 'Selfies'))
-  await evening(day, phone, travel)
+  await evening(day, phone, travel, [], () => day.step('evening ZIP at 21:00', 'timelapse', () => downloadZip(day, phone)))
 }
 
 // --- Day 8 · Tue 2026-11-03 -------------------------------------------------------
@@ -586,8 +591,8 @@ async function day9(day: Day): Promise<void> {
     const start = day.nextSeq()
     const taps = await phone.signIn(OWNER)
     const landed = await phone.screen()
-    day.check('login: phone signs back in through the form', 'login', landed !== null && landed !== 'account-screen', { taps, landed })
-    if (landed !== 'capture-screen') day.notes.push(`After logging out from Settings and signing back in, the phone opened on ${landed}, not the camera`)
+    day.check('login: phone signs back in through the form and lands on the camera (logged out from Settings)', 'login', landed === 'capture-screen',
+      { taps, landed, path: await phone.page.evaluate(() => location.pathname + location.search) })
     await synced(day, phone, start)
     await matchesServer(day, phone, 'accounts: after signing back in, photos come from the server')
     let ghosts: Array<{ albumId: string; imageId: string }> = []

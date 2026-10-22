@@ -28,3 +28,19 @@ it('cancels before reading any master', async () => {
   await expect(downloadPhotos([photo()], [defaultAlbum()], controller.signal, () => {})).rejects.toMatchObject({ name: 'AbortError' })
   expect(request).not.toHaveBeenCalled()
 })
+
+it('names the ZIP for today on this device, not the UTC date (an evening export in Los Angeles)', async () => {
+  const zone = process.env.TZ
+  process.env.TZ = 'America/Los_Angeles'
+  vi.useFakeTimers({ toFake: ['Date'] })
+  try {
+    vi.setSystemTime(new Date('2026-11-03T05:00:00Z')) // Mon 2 Nov, 21:00 PST
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(new Uint8Array([1]), { headers: { 'Content-Type': 'image/webp' } }))))
+    const archive = await downloadPhotos([photo()], [defaultAlbum()], new AbortController().signal, () => {})
+    expect(archive.name).toBe('selfie-a-day-2026-11-02.zip')
+  } finally {
+    vi.useRealTimers()
+    if (zone === undefined) delete process.env.TZ
+    else process.env.TZ = zone
+  }
+})

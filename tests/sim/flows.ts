@@ -269,6 +269,7 @@ export async function downloadZip(day: Day, device: Device): Promise<void> {
   await device.press(device.testId('nav-settings'))
   let bytes: Buffer
   let path: string
+  let fileName: string
   if (device.name === 'phone') {
     await device.page.evaluate(() => { (window as unknown as { __simShared: unknown }).__simShared = null })
     await device.press(device.testId('download-photos'))
@@ -281,6 +282,7 @@ export async function downloadZip(day: Day, device: Device): Promise<void> {
       return { name: file.name, type: file.type, base64: btoa(binary) }
     })
     bytes = Buffer.from(shared.base64, 'base64')
+    fileName = shared.name
     path = `share sheet: ${shared.name} (${shared.type})`
   } else {
     const download = device.page.waitForEvent('download', { timeout: 60_000 })
@@ -290,7 +292,8 @@ export async function downloadZip(day: Day, device: Device): Promise<void> {
     const chunks: Buffer[] = []
     for await (const chunk of stream) chunks.push(chunk as Buffer)
     bytes = Buffer.concat(chunks)
-    path = `download: ${file.suggestedFilename()}`
+    fileName = file.suggestedFilename()
+    path = `download: ${fileName}`
     await file.delete()
   }
   const names = zipEntries(bytes)
@@ -298,6 +301,9 @@ export async function downloadZip(day: Day, device: Device): Promise<void> {
   day.check(`timelapse: ${device.name} "Download my photos" ZIP has one entry per active photo (${expected.length})`, 'timelapse',
     names.length === expected.length && names.every((name) => ids.has((name.split('/')[1] ?? '').slice(11).replace(/\.(jpg|webp)$/, ''))),
     { path, bytes: bytes.length, entries: names.length, active: expected.length, sample: names.slice(0, 3) })
+  const now = day.simNow()
+  day.check(`timelapse: ${device.name} ZIP is named for today in Los Angeles`, 'timelapse', fileName === `selfie-a-day-${day.dayKey}.zip`,
+    { fileName, at: simStamp(now), utcDate: new Date(now).toISOString().slice(0, 10) })
   await home(device)
 }
 
