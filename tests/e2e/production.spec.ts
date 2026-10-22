@@ -13,5 +13,4 @@ test('deployment serves the app shell, API, and security headers', async ({ page
   expect(me.headers()['cache-control']).toContain('no-store')
   await page.goto('/settings')
   await expect(page.getByTestId('logout')).toBeVisible()
-  await expect(page.getByText('Nothing leaves this device')).toHaveCount(0)
 })

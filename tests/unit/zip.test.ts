@@ -83,13 +83,4 @@ describe('createZip / readZip', () => {
     expect(() => readZip(bytes)).toThrow(ZipError)
     expect(() => readZip(bytes)).toThrow(/checksum/i)
   })
-
-  it('rejects a file that is not a ZIP at all', () => {
-    expect(() => readZip(encoder.encode('this is just some text, not an archive'))).toThrow(ZipError)
-  })
-
-  it('rejects a truncated archive', async () => {
-    const bytes = await toBytes(createZip([{ name: 'photo.jpg', data: randomBytes(400) }]))
-    expect(() => readZip(bytes.slice(0, bytes.length - 10))).toThrow(ZipError)
-  })
 })

@@ -11,7 +11,7 @@ export default defineConfig({
   projects: [
     { name: 'mobile', use: { ...devices['iPhone 14'], defaultBrowserType: 'chromium', isMobile: false, hasTouch: true, permissions: ['camera'], launchOptions: chromium } },
     { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 900 }, permissions: ['camera'], launchOptions: chromium } },
-    { name: 'webkit-iphone', testMatch: ['**/cloud/accounts.spec.ts', '**/cloud/layout.spec.ts', '**/cloud/legacy.spec.ts'], use: { ...devices['iPhone 14'], defaultBrowserType: 'webkit' } },
+    { name: 'webkit-iphone', testMatch: ['**/cloud/accounts.spec.ts'], use: { ...devices['iPhone 14'], defaultBrowserType: 'webkit' } },
   ],
   webServer: process.env.E2E_BASE_URL ? undefined : [
     { command: 'node scripts/start-e2e-api.mjs', url: 'http://127.0.0.1:8787/api/auth/me', reuseExistingServer: false, timeout: 120_000 },

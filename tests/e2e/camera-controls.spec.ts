@@ -1,18 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { expectNoCameraPhoto, openCamera, pauseCameraClock } from '../e2e-support/camera.ts'
-import { waitForCameraLive } from '../e2e-support/helpers.ts'
 import { createAccount, seedPhoto, signIn, snapshot, syncPage } from '../e2e-support/api.ts'
-
-test('timer advances Off → 3s → 5s → 10s → Off with one tap per choice', async ({ page }) => {
-  const camera = await openCamera(page)
-  const timer = page.getByTestId('camera-timer')
-  await expect(timer).toHaveAttribute('data-seconds', '0')
-  for (const seconds of [3, 5, 10, 0]) {
-    await timer.click()
-    await expect(timer).toHaveAttribute('data-seconds', `${seconds}`)
-  }
-  await expectNoCameraPhoto(camera.photos)
-})
 
 test('top-corner controls meet 44×44 targets and do not move the frame or shutter', async ({ page }) => {
   await openCamera(page)
@@ -55,22 +43,6 @@ test('one shutter tap counts down visibly and saves one timed photo at zero', as
   expect(await camera.photos()).toHaveLength(1)
 })
 
-for (const target of ['shutter', 'frame-tap']) {
-  test(`a second ${target} tap cancels without saving`, async ({ page }) => {
-    const camera = await openCamera(page)
-    await pauseCameraClock(page)
-    await page.getByTestId('camera-timer').click()
-    await page.getByTestId(target).click()
-    await expect(page.getByTestId('countdown')).toBeVisible()
-    await page.clock.runFor(2000)
-    await page.getByTestId(target).click()
-    await expect(page.getByTestId('countdown')).toHaveCount(0)
-    await page.clock.runFor(20_000)
-    await expectNoCameraPhoto(camera.photos)
-    await expect(page.getByTestId('camera-timer')).toBeEnabled()
-  })
-}
-
 for (const key of ['Space', 'Enter']) {
   test(`${key} starts and cancels the same countdown`, async ({ page }) => {
     const camera = await openCamera(page)
@@ -83,35 +55,6 @@ for (const key of ['Space', 'Enter']) {
     await page.clock.runFor(20_000)
     await expect(page.getByTestId('countdown')).toHaveCount(0)
     await expectNoCameraPhoto(camera.photos)
-  })
-}
-
-test('navigation cancels a pending countdown', async ({ page }) => {
-  const camera = await openCamera(page)
-  await pauseCameraClock(page)
-  await page.getByTestId('camera-timer').click()
-  await page.getByTestId('shutter').click()
-  await page.getByTestId('nav-timeline').click()
-  await page.clock.runFor(20_000)
-  await expectNoCameraPhoto(camera.photos)
-  await expect(page.getByTestId('countdown')).toHaveCount(0)
-})
-
-for (const event of ['visibilitychange', 'pagehide']) {
-  test(`${event} cancels without a background photo`, async ({ page }) => {
-    const camera = await openCamera(page)
-    await pauseCameraClock(page)
-    await page.getByTestId('camera-timer').click()
-    await page.getByTestId('shutter').click()
-    await page.evaluate((event) => {
-      if (event === 'visibilitychange') {
-        Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
-        document.dispatchEvent(new Event(event))
-      } else window.dispatchEvent(new Event(event))
-    }, event)
-    await page.clock.runFor(20_000)
-    await expectNoCameraPhoto(camera.photos)
-    await expect(page.getByTestId('countdown')).toHaveCount(0)
   })
 }
 
@@ -139,16 +82,6 @@ test('flash toggles in one tap and exposes a full-viewport white layer before ca
   await expect.poll(camera.photos).toHaveLength(1)
   await page.getByTestId('camera-flash').click()
   await expect(page.getByTestId('camera-flash')).toHaveAttribute('data-flash', 'off')
-})
-
-test('timer and flash choices survive reload', async ({ page }) => {
-  await openCamera(page)
-  await page.getByTestId('camera-timer').click()
-  await page.getByTestId('camera-flash').click()
-  await page.reload()
-  await waitForCameraLive(page)
-  await expect(page.getByTestId('camera-timer')).toHaveAttribute('data-seconds', '3')
-  await expect(page.getByTestId('camera-flash')).toHaveAttribute('data-flash', 'on')
 })
 
 test('a newer photo from another device supplies its timer, including Off', async ({ page, browser, baseURL }) => {

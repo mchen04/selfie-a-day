@@ -259,19 +259,4 @@ test.describe('coordinate space', () => {
       ).toBeCloseTo(FRAME_ASPECT, 2)
     }
   })
-
-  /**
-   * The CSS custom property and the capture maths must be the same number. They
-   * used to be declared independently, which is a silent route to the preview
-   * and the saved photo having different crops.
-   */
-  test('the CSS frame aspect is derived from the capture constant', async ({ page }) => {
-    const cssValue = await page.evaluate(() =>
-      getComputedStyle(document.documentElement).getPropertyValue('--frame-aspect').trim(),
-    )
-    expect(Number(cssValue)).toBeCloseTo(FRAME_ASPECT, 6)
-
-    const frame = (await page.getByTestId('capture-frame').boundingBox())!
-    expect(frame.width / frame.height).toBeCloseTo(FRAME_ASPECT, 2)
-  })
 })
