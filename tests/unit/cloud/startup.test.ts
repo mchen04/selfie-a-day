@@ -236,3 +236,23 @@ describe('startup without a network wait', () => {
     expect(await cachedUser()).toEqual(other)
   })
 })
+
+describe('reconnecting', () => {
+  it('uploads a photo that waited out a long offline spell as soon as the connection returns', async () => {
+    const offline = { ...pending(owner.id, photo(1_800_000_000_000)), attempts: 13, nextAttemptAt: Date.now() + 200_000, error: 'Waiting for a connection.' }
+    const rejected = { ...pending(owner.id, photo(1_800_000_000_001, 'album-aaaaaaaaaaaaaaaaaaaa')), attempts: 1, nextAttemptAt: Number.MAX_SAFE_INTEGER, error: 'This photo is too large.' }
+    await cacheUser(owner)
+    await writeSnapshot(owner.id, { albums: [defaultAlbum()], photos: [], cursor: 'cached' })
+    await queuePhoto(offline)
+    await queuePhoto(rejected)
+    await mount()
+    await settle(() => { respond(reply({ user: owner })) })
+    await waitFor(() => expect(app.syncing).toBe(false))
+    expect(remote.uploadIds).toEqual([])
+    const answer = remote.mocked.getMockImplementation()!
+    remote.mocked.mockImplementation((url, init) => url === '/api/auth/me' ? Promise.resolve(reply({ user: owner })) : answer(url, init))
+    await settle(() => { window.dispatchEvent(new Event('online')) })
+    await waitFor(() => expect(remote.uploadIds).toEqual([offline.meta.id]))
+    expect((await listPending(owner.id)).map((entry) => entry.meta.id)).toEqual([rejected.meta.id])
+  })
+})

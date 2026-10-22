@@ -125,6 +125,19 @@ export function photoUrl(id: string, kind: 'master' | 'thumb'): string {
   return `/api/photos/${encodeURIComponent(id)}/${kind}`
 }
 
+/**
+ * Load a just-uploaded photo's thumbnail the way the timeline does. Thumbnails
+ * are immutable, so the HTTP cache keeps it and the timeline can still draw it
+ * offline after a newer photo replaced it as the album's ghost, even if it was
+ * never on screen while online.
+ */
+export function cacheThumbnail(id: string): void {
+  if (typeof Image === 'undefined') return
+  const image = new Image()
+  image.decoding = 'async'
+  image.src = photoUrl(id, 'thumb')
+}
+
 export async function photoBlob(id: string, kind: 'master' | 'thumb', signal?: AbortSignal): Promise<Blob> {
   const response = await request(`/photos/${id}/${kind}`, signal ? { signal } : {})
   return response.blob()

@@ -1,4 +1,4 @@
-import { api, ApiError, photoBlob, requireUser, uploadPhoto, type User } from '../api/client.ts'
+import { api, ApiError, cacheThumbnail, photoBlob, requireUser, uploadPhoto, type User } from '../api/client.ts'
 import { SCHEMA_VERSION, type Album, type PhotoMeta, type StoredImage } from '../core/types.ts'
 import {
   listGhostRefs, listPending, putGhost, queuePhoto, readSnapshot, removeGhost,
@@ -7,6 +7,7 @@ import {
 
 export interface SyncState extends Snapshot { pending: PendingPhoto[]; syncing: boolean; error: string | null }
 const READ_INTERRUPTED = new Error('Read interrupted')
+const WAITING_FOR_CONNECTION = 'Waiting for a connection.'
 
 export class SyncEngine {
   readonly user: User
@@ -196,6 +197,7 @@ export class SyncEngine {
         this.emit({ photos })
         await this.persist()
         await removePending(this.user.id, entry.meta.id)
+        cacheThumbnail(entry.meta.id)
       } catch (error) {
         if (!this.active) return
         if (error instanceof ApiError && error.code === 'user_mismatch') {
@@ -210,7 +212,7 @@ export class SyncEngine {
           : Math.min(300_000, 1000 * 2 ** Math.min(entry.attempts, 8))
         await updatePending({ ...entry, attempts: entry.attempts + 1,
           nextAttemptAt: permanent ? Number.MAX_SAFE_INTEGER : Date.now() + delay,
-          error: error instanceof ApiError ? error.message : 'Waiting for a connection.' })
+          error: error instanceof ApiError ? error.message : WAITING_FOR_CONNECTION })
       }
       this.emit({ pending: await listPending(this.user.id) })
     }
@@ -224,6 +226,24 @@ export class SyncEngine {
     if (Number.isFinite(wait) && wait < 2_147_483_647) {
       this.retry = setTimeout(() => { void this.requestUpload() }, wait)
     }
+  }
+
+  /**
+   * The connection is back (or the app is back in front while online): photos
+   * that were only waiting for a connection upload now, not after their
+   * backoff, which grows to minutes over a long offline spell. Rejected and
+   * rate-limited uploads keep their schedule.
+   */
+  async reconnect(): Promise<void> {
+    if (!this.active) return
+    if (!this.uploadBlocked) {
+      await this.run(async () => {
+        for (const entry of await listPending(this.user.id)) {
+          if (entry.error === WAITING_FOR_CONNECTION && entry.nextAttemptAt > Date.now()) await updatePending({ ...entry, nextAttemptAt: 0 })
+        }
+      }).catch(() => undefined)
+    }
+    return this.refresh()
   }
 
   async retryUploads(): Promise<void> {

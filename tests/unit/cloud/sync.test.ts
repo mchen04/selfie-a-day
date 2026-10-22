@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api, ApiError } from '../../../src/api/client.ts'
+import { api, ApiError, photoUrl } from '../../../src/api/client.ts'
 import { SyncEngine } from '../../../src/sync/engine.ts'
 import { listGhosts, listPending, queuePhoto, readSnapshot, writeSnapshot } from '../../../src/storage/local.ts'
 import { defaultAlbum } from '../../../src/core/albums.ts'
@@ -30,6 +30,20 @@ describe('sync', () => {
     expect(mocked.mock.calls.map(([url]) => url)).toEqual([`/api/photos/${capture.meta.id}`, '/api/sync?since=cached'])
     expect(new Headers(mocked.mock.calls[0]![1]?.headers).get('X-Selfie-User')).toBe('synthetic-a')
     expect(uploadIds).toEqual([capture.meta.id])
+  })
+
+  it('loads an uploaded photo’s thumbnail once, so it stays drawable offline after a newer photo replaces its ghost', async () => {
+    const loaded: string[] = []
+    vi.stubGlobal('Image', class { decoding = ''; set src(url: string) { loaded.push(url) } })
+    const { uploadIds } = server()
+    const current = engine()
+    await current.hydrate()
+    const failed = pending('synthetic-a', photo(1_800_000_000_001)), capture = pending('synthetic-a', photo(1_800_000_000_002))
+    await queuePhoto({ ...failed, nextAttemptAt: Number.MAX_SAFE_INTEGER, error: 'Rejected.' })
+    await current.enqueue(capture.meta, capture.master, capture.thumb)
+    await vi.waitFor(() => expect(uploadIds).toEqual([capture.meta.id]))
+    await vi.waitFor(() => expect(current.state.syncing).toBe(false))
+    expect(loaded).toEqual([photoUrl(capture.meta.id, 'thumb')])
   })
 
   it('uploads before an in-flight refresh returns its sync response', async () => {

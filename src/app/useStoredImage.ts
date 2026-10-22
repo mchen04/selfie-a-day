@@ -7,6 +7,8 @@ export interface StoredImageState {
   url: string | null
   loading: boolean
   error: string | null
+  /** Set while `url` is the server copy; call it when that copy fails to load. */
+  onError?: (() => void) | undefined
 }
 
 const IDLE: StoredImageState = { url: null, loading: false, error: null }
@@ -29,6 +31,11 @@ interface Entry {
  * The loaded entry is tagged with the key it belongs to, so a result arriving
  * after the caller moved on is ignored by rendering rather than by a race-prone
  * cancellation flag.
+ *
+ * An uploaded photo's thumbnail comes from the server, so viewing it online
+ * leaves it in the HTTP cache for offline use. When that copy cannot load (offline
+ * before it was ever fetched), the album's ghost on this device, which is the
+ * newest photo's master, is drawn in its place.
  */
 export function useStoredImage(
   id: string | null | undefined,
@@ -39,7 +46,10 @@ export function useStoredImage(
   const { user, pendingIds } = useApp()
   const pending = !!id && pendingIds.includes(id)
   const userId = user?.id
-  const key = enabled && id && userId ? `${userId}:${kind}:${id}:${pending}` : null
+  const [failed, setFailed] = useState<string | null>(null)
+  const loadKey = enabled && id && userId ? `${userId}:${kind}:${id}:${pending}` : null
+  const fallback = !!loadKey && failed === loadKey
+  const key = loadKey && `${loadKey}:${fallback}`
   const [entry, setEntry] = useState<Entry | null>(null)
 
   useEffect(() => {
@@ -50,7 +60,9 @@ export function useStoredImage(
 
     void (async () => {
       try {
-        const stored = allowGhost ? await localImage(userId, id, kind) : (await getPending(userId, id))?.[kind]
+        const stored = fallback
+          ? await localImage(userId, id, 'master')
+          : allowGhost ? await localImage(userId, id, kind) : (await getPending(userId, id))?.[kind]
         if (cancelled) return
         if (!stored) {
           setEntry({ key, url: photoUrl(id, kind), error: null })
@@ -77,11 +89,12 @@ export function useStoredImage(
       cancelled = true
       if (created) URL.revokeObjectURL(created)
     }
-  }, [key, id, kind, userId, allowGhost])
+  }, [key, id, kind, userId, allowGhost, fallback])
 
   if (!key) return IDLE
   if (entry?.key !== key) return LOADING
-  return { url: entry.url, loading: false, error: entry.error }
+  const canFallBack = !!id && kind === 'thumb' && allowGhost && !fallback && entry.url === photoUrl(id, kind)
+  return { url: entry.url, loading: false, error: entry.error, onError: canFallBack ? () => setFailed(loadKey) : undefined }
 }
 
 /**

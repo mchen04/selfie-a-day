@@ -100,7 +100,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (startup.current === controller) startup.current = null
       }
     })()
-    const refresh = () => { if (!document.hidden) void engine.current?.refresh() }
+    const refresh = () => {
+      if (document.hidden) return
+      void (navigator.onLine ? engine.current?.reconnect() : engine.current?.refresh())
+    }
     window.addEventListener('online', refresh)
     document.addEventListener('visibilitychange', refresh)
     return () => {

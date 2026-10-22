@@ -181,6 +181,7 @@ function Thumb({ meta }: { meta: PhotoMeta }) {
           loading="lazy"
           decoding="async"
           draggable={false}
+          onError={image.onError}
         />
       ) : (
         <span className="cell__placeholder" aria-hidden="true" />
