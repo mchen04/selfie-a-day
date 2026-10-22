@@ -10,7 +10,7 @@ export interface SyncResponse {
   cursor: string
 }
 
-export interface PushPreference { albumId: string; enabled: boolean; time: string; timeZone: string }
+export interface PushPreference { albumId: string; enabled: boolean; time: string }
 export interface PushSubscriptionData { endpoint: string; keys: { p256dh: string; auth: string }; timeZone: string }
 
 const messages: Record<string, string> = {
@@ -120,7 +120,7 @@ export const api = {
   pushPrefs: () => json<{ prefs: PushPreference[] }>('/push/prefs'),
   subscribe: (subscription: PushSubscriptionData) => json<void>('/push/subscription', 'PUT', subscription),
   savePushPrefs: (pref: PushPreference) => json<{ pref: PushPreference }>(`/push/prefs/${pref.albumId}`, 'PUT', {
-    enabled: pref.enabled, time: pref.time, timeZone: pref.timeZone,
+    enabled: pref.enabled, time: pref.time,
   }),
 }
 

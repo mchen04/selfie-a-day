@@ -9,11 +9,10 @@ interface PrefRow {
   album_id: string
   enabled: number
   time: string
-  time_zone: string
 }
 
 function prefDto(row: PrefRow) {
-  return { albumId: row.album_id, enabled: row.enabled === 1, time: row.time, timeZone: row.time_zone }
+  return { albumId: row.album_id, enabled: row.enabled === 1, time: row.time }
 }
 
 export async function handlePush(request: Request, env: PushEnv, ctx: { userId: string; url: URL }): Promise<Response | null> {
@@ -22,7 +21,7 @@ export async function handlePush(request: Request, env: PushEnv, ctx: { userId: 
   if (!['/api/push/config', '/api/push/subscription', '/api/push/prefs'].includes(path) && !albumMatch) return null
   if (path === '/api/push/config' && request.method === 'GET') return json({ publicKey: env.VAPID_PUBLIC_KEY })
   if (path === '/api/push/prefs' && request.method === 'GET') {
-    const rows = await env.DB.prepare(`SELECT p.album_id, p.enabled, p.time, p.time_zone FROM push_prefs p
+    const rows = await env.DB.prepare(`SELECT p.album_id, p.enabled, p.time FROM push_prefs p
       JOIN albums a ON a.user_id = p.user_id AND a.id = p.album_id
       WHERE p.user_id = ? AND a.deleted_at IS NULL ORDER BY p.album_id`).bind(ctx.userId).all<PrefRow>()
     return json({ prefs: rows.results.map(prefDto) })
@@ -70,10 +69,10 @@ export async function handlePush(request: Request, env: PushEnv, ctx: { userId: 
   if (!album) return json({ error: 'not_found' }, 404)
   if (typeof body.enabled !== 'boolean') return json({ error: 'invalid_enabled' }, 400)
   if (typeof body.time !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(body.time)) return json({ error: 'invalid_time' }, 400)
-  if (!validTimeZone(body.timeZone)) return json({ error: 'invalid_time_zone' }, 400)
-  await env.DB.prepare(`INSERT INTO push_prefs (user_id, album_id, enabled, time, time_zone)
-    VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, album_id) DO UPDATE SET
-    enabled = excluded.enabled, time = excluded.time, time_zone = excluded.time_zone`)
-    .bind(ctx.userId, albumId, Number(body.enabled), body.time, body.timeZone).run()
-  return json({ pref: { albumId, enabled: body.enabled, time: body.time, timeZone: body.timeZone } })
+  // No zone: the scheduler uses the album's fixed zone, else the device's.
+  await env.DB.prepare(`INSERT INTO push_prefs (user_id, album_id, enabled, time)
+    VALUES (?, ?, ?, ?) ON CONFLICT(user_id, album_id) DO UPDATE SET
+    enabled = excluded.enabled, time = excluded.time`)
+    .bind(ctx.userId, albumId, Number(body.enabled), body.time).run()
+  return json({ pref: { albumId, enabled: body.enabled, time: body.time } })
 }

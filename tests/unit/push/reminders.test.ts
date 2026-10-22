@@ -2,7 +2,6 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Reminders } from '../../../src/push/Reminders.tsx'
-import { resolvedTimeZone } from '../../../src/core/day.ts'
 import { defaultAlbum } from '../../../src/core/albums.ts'
 import { pushEnvironment } from './environment.ts'
 
@@ -44,13 +43,13 @@ describe('compact reminders', () => {
     expect(env.notification.requestPermission).not.toHaveBeenCalled()
   })
 
-  it('first toggle asks, subscribes, then saves the enabled preference with the device zone', async () => {
+  it('first toggle asks, subscribes, then saves the enabled preference', async () => {
     await render()
     await click()
     expect(env.notification.requestPermission).toHaveBeenCalledOnce()
     expect(env.manager.subscribe).toHaveBeenCalledOnce()
     expect(env.request.mock.calls.map(([path]) => path)).toEqual(['/api/push/prefs', '/api/push/config', '/api/push/subscription', '/api/push/prefs/selfies'])
-    expect(JSON.parse(writes()[0]![1]?.body as string)).toEqual({ enabled: true, time: '09:00', timeZone: resolvedTimeZone() })
+    expect(JSON.parse(writes()[0]![1]?.body as string)).toEqual({ enabled: true, time: '09:00' })
     expect(toggle().getAttribute('aria-checked')).toBe('true')
   })
 
@@ -62,19 +61,19 @@ describe('compact reminders', () => {
       input.dispatchEvent(new Event('input', { bubbles: true }))
       await Promise.resolve()
     })
-    expect(JSON.parse(writes()[0]![1]?.body as string)).toEqual({ enabled: false, time: '07:45', timeZone: resolvedTimeZone() })
+    expect(JSON.parse(writes()[0]![1]?.body as string)).toEqual({ enabled: false, time: '07:45' })
     expect(env.notification.requestPermission).not.toHaveBeenCalled()
   })
 
-  it('saves the album zone and turns off without resubscribing', async () => {
+  it('turns off without resubscribing and saves no zone', async () => {
     env.notification.permission = 'granted'
-    env.setPrefs([{ albumId: 'selfies', enabled: true, time: '10:15', timeZone: 'UTC' }])
+    env.setPrefs([{ albumId: 'selfies', enabled: true, time: '10:15' }])
     await render()
     await click()
-    expect(JSON.parse(writes()[0]![1]?.body as string)).toEqual({ enabled: false, time: '10:15', timeZone: resolvedTimeZone() })
+    expect(JSON.parse(writes()[0]![1]?.body as string)).toEqual({ enabled: false, time: '10:15' })
     expect(env.manager.subscribe).not.toHaveBeenCalled()
     await act(async () => { container.querySelector<HTMLButtonElement>('[data-testid="reminder-toggle-album-fixed"]')!.click(); await Promise.resolve() })
-    expect(JSON.parse(writes()[1]![1]?.body as string)).toEqual({ enabled: true, time: '09:00', timeZone: 'Pacific/Auckland' })
+    expect(JSON.parse(writes()[1]![1]?.body as string)).toEqual({ enabled: true, time: '09:00' })
   })
 
   it.each(['unsupported', 'not-installed', 'denied'] as const)('disables every row with one explanation when %s', async (state) => {

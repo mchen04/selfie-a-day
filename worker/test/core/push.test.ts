@@ -57,7 +57,7 @@ describe('push through the Worker router', () => {
     const config = await request('config')
     expect(config.status).toBe(200)
     expect(await config.json()).toEqual({ publicKey: env.VAPID_PUBLIC_KEY })
-    const pref = { albumId: 'selfies', enabled: true, time: '09:00', timeZone: 'UTC' }
+    const pref = { albumId: 'selfies', enabled: true, time: '09:00' }
     const saved = await request('prefs/selfies', 'PUT', pref)
     expect(saved.status).toBe(200)
     expect(await saved.json()).toEqual({ pref })
@@ -68,7 +68,7 @@ describe('push through the Worker router', () => {
   })
 
   it('keeps authentication, CSRF, method and ownership errors at the shared boundary', async () => {
-    expect((await request('prefs/selfies', 'PUT', { enabled: true, time: '25:00', timeZone: 'UTC' })).status).toBe(400)
+    expect((await request('prefs/selfies', 'PUT', { enabled: true, time: '25:00' })).status).toBe(400)
     expect((await request('prefs/album-aaaaaaaaaaaaaaaaaaaa', 'PUT', {})).status).toBe(404)
     expect((await request('config', 'POST', {})).status).toBe(405)
     expect((await request('unknown')).status).toBe(404)
@@ -88,7 +88,7 @@ describe('push through the Worker router', () => {
     expect((await request('subscription', 'PUT', {
       endpoint, keys: { p256dh: receiver.getPublicKey().toString('base64url'), auth: randomBytes(16).toString('base64url') }, timeZone: 'UTC',
     })).status).toBe(204)
-    await request('prefs/selfies', 'PUT', { enabled: true, time: '09:00', timeZone: 'UTC' })
+    await request('prefs/selfies', 'PUT', { enabled: true, time: '09:00' })
     const send = vi.fn().mockResolvedValue(new Response(null, { status: 201 }))
     vi.stubGlobal('fetch', send)
     const scheduledTime = Date.parse('2026-10-21T09:05:00Z')

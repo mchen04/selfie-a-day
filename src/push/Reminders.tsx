@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, type PushPreference } from '../api/client.ts'
 import type { Album } from '../core/types.ts'
-import { resolvedTimeZone } from '../core/day.ts'
 import { pushState, subscribeDevice } from './client.ts'
 import '../styles/push.css'
 
@@ -43,7 +42,7 @@ export function Reminders({ albums, onError }: { albums: Album[]; onError: (mess
     if (saving.current.has(album.id)) return
     saving.current.add(album.id)
     setPending([...saving.current])
-    const next = { ...previous, ...patch, timeZone: album.timeZone ?? resolvedTimeZone() }
+    const next = { ...previous, ...patch }
     setPrefs((current) => ({ ...current, [album.id]: next }))
     try {
       if (next.enabled) await subscribeDevice()
@@ -69,7 +68,7 @@ export function Reminders({ albums, onError }: { albums: Album[]; onError: (mess
       {reason ? <p className="tiny muted reminders__note" id="reminders-reason">{reason}</p> : null}
       {loadError ? <p className="tiny muted reminders__note" role="alert">Could not load reminders. Reopen Settings to try again.</p> : null}
       {albums.filter((album) => album.deletedAt === null).map((album) => {
-        const pref = prefs[album.id] ?? { albumId: album.id, enabled: false, time: '09:00', timeZone: album.timeZone ?? resolvedTimeZone() }
+        const pref = prefs[album.id] ?? { albumId: album.id, enabled: false, time: '09:00' }
         const disabled = !!reason || !loaded || pending.includes(album.id)
         return (
           <div className="reminder-row" key={album.id} data-testid={`reminder-${album.id}`} aria-busy={pending.includes(album.id)}>

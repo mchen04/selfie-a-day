@@ -167,8 +167,9 @@ test('two taps enable one encrypted reminder; a saved photo suppresses the eveni
     })
     expect(saved.timeZone).toBe('America/Los_Angeles')
     const pref = saved.prefs.find((pref) => pref.albumId === 'selfies')!
-    expect(pref).toMatchObject({ enabled: true, timeZone: saved.timeZone })
-    const schedule = reminderSchedule(pref, saved.now)
+    expect(pref).toEqual({ albumId: 'selfies', enabled: true, time: '09:00' })
+    // The album follows the device, so the scheduler uses the subscription's zone.
+    const schedule = reminderSchedule(pref.time, saved.timeZone, saved.now)
     await testInfo.attach('reminder-schedule', { body: JSON.stringify({ pref, schedule }), contentType: 'application/json' })
     await runCron(schedule.morning)
     await expect.poll(() => received.length).toBe(1)

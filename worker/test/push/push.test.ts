@@ -18,8 +18,8 @@ async function subscribe(path = '/push', userId = 'alice') {
   expect((await api('/api/push/subscription', 'PUT', fixture.subscriptionBody(path), userId)).status).toBe(204)
 }
 
-async function pref(time = '09:00', timeZone = 'UTC', albumId = 'selfies', userId = 'alice', enabled = true) {
-  expect((await api(`/api/push/prefs/${albumId}`, 'PUT', { enabled, time, timeZone }, userId)).status).toBe(200)
+async function pref(time = '09:00', albumId = 'selfies', userId = 'alice', enabled = true) {
+  expect((await api(`/api/push/prefs/${albumId}`, 'PUT', { enabled, time }, userId)).status).toBe(200)
 }
 
 async function photo(dayKey: string, options: { id?: string; userId?: string; albumId?: string; deleted?: boolean; purged?: boolean } = {}) {
@@ -131,32 +131,29 @@ describe('push endpoints', () => {
   })
 
   it('returns only the current user preferences and requires album ownership', async () => {
-    await pref('10:15', 'America/Los_Angeles')
-    await pref('11:30', 'UTC', 'selfies', 'bob')
-    expect(await (await api('/api/push/prefs')).json()).toEqual({ prefs: [{ albumId: 'selfies', enabled: true, time: '10:15', timeZone: 'America/Los_Angeles' }] })
-    expect((await api('/api/push/prefs/album-bbbbbbbbbbbbbbbbbbbb', 'PUT', { enabled: true, time: '09:00', timeZone: 'UTC' })).status).toBe(404)
-    expect((await api('/api/push/prefs/absent', 'PUT', { enabled: true, time: '09:00', timeZone: 'UTC' })).status).toBe(404)
+    await pref('10:15')
+    await pref('11:30', 'selfies', 'bob')
+    expect(await (await api('/api/push/prefs')).json()).toEqual({ prefs: [{ albumId: 'selfies', enabled: true, time: '10:15' }] })
+    expect((await api('/api/push/prefs/album-bbbbbbbbbbbbbbbbbbbb', 'PUT', { enabled: true, time: '09:00' })).status).toBe(404)
+    expect((await api('/api/push/prefs/absent', 'PUT', { enabled: true, time: '09:00' })).status).toBe(404)
   })
 
   it.each(['24:00', '9:00', '12:60', '00:0', ' 09:00', '09:00:00', null, 900])('rejects invalid reminder time %s', async time => {
-    expect((await api('/api/push/prefs/selfies', 'PUT', { enabled: true, time, timeZone: 'UTC' })).status).toBe(400)
+    expect((await api('/api/push/prefs/selfies', 'PUT', { enabled: true, time })).status).toBe(400)
   })
 
-  it('validates preference zones and booleans and allows disabling and boundary times', async () => {
-    for (const timeZone of ['Mars/Base', '', '+01:00', null]) {
-      expect((await api('/api/push/prefs/selfies', 'PUT', { enabled: true, time: '09:00', timeZone })).status).toBe(400)
-    }
-    expect((await api('/api/push/prefs/selfies', 'PUT', { enabled: 1, time: '09:00', timeZone: 'UTC' })).status).toBe(400)
+  it('validates preference booleans and allows disabling and boundary times', async () => {
+    expect((await api('/api/push/prefs/selfies', 'PUT', { enabled: 1, time: '09:00' })).status).toBe(400)
     await pref('00:00')
-    await pref('23:59', 'UTC', 'selfies', 'alice', false)
-    expect(await (await api('/api/push/prefs')).json()).toEqual({ prefs: [{ albumId: 'selfies', enabled: false, time: '23:59', timeZone: 'UTC' }] })
+    await pref('23:59', 'selfies', 'alice', false)
+    expect(await (await api('/api/push/prefs')).json()).toEqual({ prefs: [{ albumId: 'selfies', enabled: false, time: '23:59' }] })
   })
 })
 
 describe('scheduler and Web Push encryption', () => {
   it('uses a changed album zone for reminder time and today', async () => {
     await subscribe()
-    await pref('09:00', 'UTC')
+    await pref('09:00')
     await fixture.env.DB.prepare("UPDATE albums SET time_zone = 'America/Los_Angeles' WHERE user_id = 'alice' AND id = 'selfies'").run()
     expect((await runPushScheduler(fixture.env, at('2026-07-01T16:00:00Z'))).sent).toBe(1)
     await photo('2026-07-02')
@@ -167,7 +164,7 @@ describe('scheduler and Web Push encryption', () => {
   it('follows the most recently synced device zone on a DST day', async () => {
     await subscribe('/travel')
     await subscribe('/home')
-    await pref('09:00', 'UTC')
+    await pref('09:00')
     await fixture.env.DB.prepare('UPDATE push_subscriptions SET updated_at = 1').run()
     await api('/api/push/subscription', 'PUT', fixture.subscriptionBody('/travel', 'America/New_York'))
     expect((await runPushScheduler(fixture.env, at('2026-03-08T12:59:00Z'))).sent).toBe(0)
@@ -178,7 +175,7 @@ describe('scheduler and Web Push encryption', () => {
 
   it('uses the effective zone date to suppress photos across midnight', async () => {
     await api('/api/push/subscription', 'PUT', fixture.subscriptionBody('/travel', 'Asia/Tokyo'))
-    await pref('08:00', 'UTC')
+    await pref('08:00')
     await photo('2026-07-02')
     expect((await runPushScheduler(fixture.env, at('2026-07-01T23:05:00Z'))).sent).toBe(0)
     await fixture.env.DB.prepare('DELETE FROM photos').run()
@@ -196,7 +193,7 @@ describe('scheduler and Web Push encryption', () => {
 
   it('sends an independently decryptable reminder at the local time, never before it', async () => {
     await subscribe()
-    await pref('09:00', 'America/Los_Angeles')
+    await pref('09:00')
     await fixture.env.DB.prepare("UPDATE albums SET time_zone = 'America/Los_Angeles' WHERE user_id = 'alice' AND id = 'selfies'").run()
     expect(await runPushScheduler(fixture.env, at('2026-07-01T15:59:00Z'))).toEqual({ sent: 0, skipped: 1, removed: 0, failed: 0 })
     expect(await runPushScheduler(fixture.env, at('2026-07-01T16:00:00Z'))).toEqual({ sent: 1, skipped: 0, removed: 0, failed: 0 })
@@ -326,7 +323,7 @@ describe('scheduler and Web Push encryption', () => {
 
   it('fires once after the Los Angeles spring-forward gap for a 02:30 reminder', async () => {
     await subscribe()
-    await pref('02:30', 'America/Los_Angeles')
+    await pref('02:30')
     await fixture.env.DB.prepare("UPDATE albums SET time_zone = 'America/Los_Angeles' WHERE user_id = 'alice' AND id = 'selfies'").run()
     expect((await runPushScheduler(fixture.env, at('2026-03-08T09:55:00Z'))).sent).toBe(0)
     expect((await runPushScheduler(fixture.env, at('2026-03-08T10:00:00Z'))).sent).toBe(1)
@@ -336,7 +333,7 @@ describe('scheduler and Web Push encryption', () => {
 
   it('fires exactly once through both Los Angeles fall-back 01:30 hours', async () => {
     await subscribe()
-    await pref('01:30', 'America/Los_Angeles')
+    await pref('01:30')
     await fixture.env.DB.prepare("UPDATE albums SET time_zone = 'America/Los_Angeles' WHERE user_id = 'alice' AND id = 'selfies'").run()
     expect((await runPushScheduler(fixture.env, at('2026-11-01T08:25:00Z'))).sent).toBe(0)
     expect((await runPushScheduler(fixture.env, at('2026-11-01T08:30:00Z'))).sent).toBe(1)
@@ -368,7 +365,7 @@ describe('scheduler and Web Push encryption', () => {
     await fixture.env.DB.prepare("UPDATE albums SET deleted_at = 1 WHERE user_id = 'alice' AND id = 'selfies'").run()
     expect((await runPushScheduler(fixture.env, at('2026-07-02T09:00:00Z'))).sent).toBe(0)
     expect(await (await api('/api/push/prefs')).json()).toEqual({ prefs: [] })
-    expect((await api('/api/push/prefs/selfies', 'PUT', { enabled: true, time: '09:00', timeZone: 'UTC' })).status).toBe(404)
+    expect((await api('/api/push/prefs/selfies', 'PUT', { enabled: true, time: '09:00' })).status).toBe(404)
   })
 
   it('logs a failed send without retrying it or qualifying it for an evening nudge', async () => {
@@ -410,9 +407,9 @@ describe('scheduler and Web Push encryption', () => {
 
   it('sends nothing for disabled preferences, missing subscriptions or another user albums', async () => {
     await subscribe()
-    await pref('09:00', 'UTC', 'selfies', 'alice', false)
-    await pref('09:00', 'UTC', 'selfies', 'bob')
-    await fixture.env.DB.prepare("INSERT INTO push_prefs VALUES ('alice', 'album-bbbbbbbbbbbbbbbbbbbb', 1, '09:00', 'UTC')").run()
+    await pref('09:00', 'selfies', 'alice', false)
+    await pref('09:00', 'selfies', 'bob')
+    await fixture.env.DB.prepare("INSERT INTO push_prefs VALUES ('alice', 'album-bbbbbbbbbbbbbbbbbbbb', 1, '09:00')").run()
     expect(await runPushScheduler(fixture.env, at('2026-07-01T09:00:00Z'))).toEqual({ sent: 0, skipped: 0, removed: 0, failed: 0 })
     expect(fixture.received).toHaveLength(0)
   })
@@ -422,7 +419,7 @@ describe('scheduler and Web Push encryption', () => {
     for (let index = 0; index < 5; index++) {
       const albumId = `album-${String(index).padStart(20, '0')}`
       await fixture.env.DB.prepare('INSERT INTO albums VALUES (?, ?, ?, NULL, 0, 0, NULL)').bind('alice', albumId, `Album ${index}`).run()
-      await pref('09:00', 'UTC', albumId)
+      await pref('09:00', albumId)
     }
     expect(await runPushScheduler(fixture.env, at('2026-07-01T09:00:00Z'))).toEqual({ sent: 40, skipped: 1, removed: 0, failed: 0 })
     expect(await runPushScheduler(fixture.env, at('2026-07-01T09:05:00Z'))).toEqual({ sent: 10, skipped: 4, removed: 0, failed: 0 })

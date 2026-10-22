@@ -15,7 +15,6 @@ CREATE TABLE push_prefs (
   album_id TEXT NOT NULL,
   enabled INTEGER NOT NULL,
   time TEXT NOT NULL,
-  time_zone TEXT NOT NULL,
   PRIMARY KEY (user_id, album_id)
 );
 

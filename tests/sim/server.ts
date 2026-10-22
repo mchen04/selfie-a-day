@@ -39,8 +39,8 @@ export const serverAlbums = (user: string) => d1<ServerAlbum>(`SELECT id, name, 
 export const serverSubscriptions = (user: string) => d1<{ endpoint: string; timeZone: string }>(
   'SELECT endpoint, time_zone AS timeZone FROM push_subscriptions WHERE user_id = ? ORDER BY endpoint', user)
 
-export const serverPrefs = (user: string) => d1<{ albumId: string; enabled: number; time: string; timeZone: string }>(
-  'SELECT album_id AS albumId, enabled, time, time_zone AS timeZone FROM push_prefs WHERE user_id = ? ORDER BY album_id', user)
+export const serverPrefs = (user: string) => d1<{ albumId: string; enabled: number; time: string }>(
+  'SELECT album_id AS albumId, enabled, time FROM push_prefs WHERE user_id = ? ORDER BY album_id', user)
 
 export const notificationLog = (user: string) => d1<{ albumId: string; event: string; dayKey: string; sent: number }>(
   `SELECT album_id AS albumId, event, day_key AS dayKey, sent_at IS NOT NULL AS sent FROM notification_log

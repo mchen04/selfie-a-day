@@ -1,4 +1,3 @@
-import type { PushPreference } from '../../src/api/client.ts'
 import { dayKeyOf } from '../../src/core/day.ts'
 
 /** `Date#getTimezoneOffset` semantics for any IANA timezone. */
@@ -20,11 +19,12 @@ export function wallClock(dayKey: string, time: string, timeZone: string, minute
   return instant
 }
 
-export function reminderSchedule(pref: PushPreference, now: number) {
-  const dayKey = dayKeyOf(new Date(now), pref.timeZone)
+/** When the cron sends a reminder at `time` and the evening nudge, in the zone the scheduler uses. */
+export function reminderSchedule(time: string, timeZone: string, now: number) {
+  const dayKey = dayKeyOf(new Date(now), timeZone)
   return {
     dayKey,
-    morning: wallClock(dayKey, pref.time, pref.timeZone, 5),
-    evening: wallClock(dayKey, '20:35', pref.timeZone),
+    morning: wallClock(dayKey, time, timeZone, 5),
+    evening: wallClock(dayKey, '20:35', timeZone),
   }
 }

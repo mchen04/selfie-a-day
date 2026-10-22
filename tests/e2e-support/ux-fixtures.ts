@@ -55,7 +55,7 @@ export async function uxFixtures(page: Page, options: UxOptions = {}) {
       deletedAt: index >= (options.photos ?? 0) ? now : null,
     }
   })
-  const prefs: PushPreference[] = albums.map((album) => ({ albumId: album.id, enabled: options.reminders === 'on', time: '09:00', timeZone: 'UTC' }))
+  const prefs: PushPreference[] = albums.map((album) => ({ albumId: album.id, enabled: options.reminders === 'on', time: '09:00' }))
   let signedIn = options.signedIn ?? true
   let releaseUploads: (() => void) | undefined
   let releaseMasters: (() => void) | undefined

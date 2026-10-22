@@ -10,7 +10,7 @@ describe('push browser cron schedule', () => {
     ['different UTC date', '2026-07-02T01:00:00Z', '09:00', '2026-07-01', '2026-07-01T16:05:00Z', '2026-07-02T03:35:00Z'],
     ['saved reminder time', '2026-07-01T19:00:00Z', '10:15', '2026-07-01', '2026-07-01T17:20:00Z', '2026-07-02T03:35:00Z'],
   ])('uses the saved Los Angeles preference for %s', (_case, now, time, dayKey, morning, evening) => {
-    const schedule = reminderSchedule({ albumId: 'selfies', enabled: true, time, timeZone: 'America/Los_Angeles' }, Date.parse(now))
+    const schedule = reminderSchedule(time, 'America/Los_Angeles', Date.parse(now))
     expect(schedule).toEqual({ dayKey, morning: Date.parse(morning), evening: Date.parse(evening) })
   })
 })
