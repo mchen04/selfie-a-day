@@ -37,7 +37,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (discard) await clearUserData(current.user.id)
       }
       await forgetCachedUser()
-      for (const key of Object.keys(localStorage)) if (key.startsWith('sad.camera.')) localStorage.removeItem(key)
+      for (const key of Object.keys(localStorage)) if (key.startsWith('sad.camera.') || key.startsWith('sad.push.')) localStorage.removeItem(key)
     })()
     clearing.current = task
     try { await task; setStatus('signed-out') }

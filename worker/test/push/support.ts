@@ -108,7 +108,7 @@ export async function createFixture() {
   const db = sqlite ?? await miniflare?.getD1Database('DB')
   if (!db) throw new Error('Missing test database')
   await db.exec(`
-    CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at INTEGER NOT NULL);
+    CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL);
     CREATE TABLE albums (user_id TEXT, id TEXT, name TEXT, time_zone TEXT, created_at INTEGER, updated_at INTEGER, deleted_at INTEGER, PRIMARY KEY(user_id, id));
     CREATE TABLE photos (user_id TEXT, id TEXT, album_id TEXT, day_key TEXT, captured_at INTEGER, time_zone TEXT, tz_offset_minutes INTEGER, width INTEGER, height INTEGER, mime TEXT, mirrored INTEGER, source TEXT, timer_seconds INTEGER NOT NULL DEFAULT 0, master_bytes INTEGER, thumb_bytes INTEGER, deleted_at INTEGER, purged_at INTEGER, updated_at INTEGER, PRIMARY KEY(user_id, id));
   `)
@@ -129,7 +129,7 @@ export async function createFixture() {
       env.PUSH_ALLOW_INSECURE_ENDPOINTS = 'true'
       await db.batch(['notification_log', 'push_prefs', 'push_subscriptions', 'photos', 'albums', 'users'].map(table => db.prepare(`DELETE FROM ${table}`)))
       await db.batch([
-        db.prepare("INSERT INTO users VALUES ('alice', 'alice', 'synthetic', 0), ('bob', 'bob', 'synthetic', 0)"),
+        db.prepare("INSERT INTO users VALUES ('alice', 'alice', 'synthetic'), ('bob', 'bob', 'synthetic')"),
         db.prepare("INSERT INTO albums VALUES ('alice', 'selfies', 'Selfies', NULL, 0, 0, NULL), ('bob', 'selfies', 'Bob photos', NULL, 0, 0, NULL), ('bob', 'album-bbbbbbbbbbbbbbbbbbbb', 'Private', NULL, 0, 0, NULL)"),
       ])
     },

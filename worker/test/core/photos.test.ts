@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { createHarness, type Harness, photoId, type SyncData, TEST_NOW } from '../support/harness'
+import { createHarness, type Harness, photoId, type SyncData, TEST_NOW, TEST_PASSWORD } from '../support/harness'
 import { photoKey } from '../../src/core/photos'
 
 describe('albums, photo storage, trash, and delta sync in workerd', () => {
@@ -12,7 +12,7 @@ describe('albums, photo storage, trash, and delta sync in workerd', () => {
     const id = photoId(mode === 'missing' ? 9001 : 9002)
     const form = new FormData()
     form.set('meta', JSON.stringify({ albumId: 'selfies', dayKey: '2026-10-21', capturedAt: TEST_NOW,
-      timeZone: 'UTC', tzOffsetMinutes: 0, width: 3, height: 4, mime: 'image/jpeg', mirrored: false, source: 'camera', timerSeconds: 0 }))
+      width: 3, height: 4, mime: 'image/jpeg', mirrored: false, timerSeconds: 0 }))
     const image = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4])], { type: 'image/jpeg' })
     form.set('master', image, 'master.jpg')
     form.set('thumb', image, 'thumb.jpg')
@@ -23,11 +23,20 @@ describe('albums, photo storage, trash, and delta sync in workerd', () => {
     expect(await h.env.PHOTOS.head(photoKey(user.id, id, 'master'))).not.toBeNull()
   })
 
+  it('creates the default album on the first full sync, never from a delta sync', async () => {
+    const signup = await h.request('/api/auth/signup', { method: 'POST', json: { username: `u-${photoId(9100)}`, password: TEST_PASSWORD }, ip: '192.0.2.91' })
+    const { user } = await signup.json<{ user: { id: string } }>()
+    const cookie = signup.headers.get('Set-Cookie')!.split(';')[0]!
+    const cursor = Buffer.from(JSON.stringify([1, user.id, 0])).toString('base64url')
+    expect((await (await h.request(`/api/sync?since=${cursor}`, { cookie })).json<SyncData>()).albums).toEqual([])
+    expect((await (await h.request('/api/sync', { cookie })).json<SyncData>()).albums.map((album) => album.id)).toEqual(['selfies'])
+  })
+
   it('creates the default album once and sends complete DTOs', async () => {
     const user = await h.user()
     const first = await (await h.request('/api/sync', { cookie: user.cookie })).json<SyncData>()
-    expect(first.albums).toEqual([{ id: 'selfies', name: 'Selfies', timeZone: null, createdAt: TEST_NOW, updatedAt: TEST_NOW, deletedAt: null }])
-    expect(first.serverTime).toBe(TEST_NOW)
+    expect(first.albums).toEqual([{ id: 'selfies', name: 'Selfies', timeZone: null, deletedAt: null }])
+    expect(Object.keys(first).sort()).toEqual(['albums', 'cursor', 'photos', 'removed'])
     expect(typeof first.cursor).toBe('string')
     const next = await (await h.request(`/api/sync?since=${first.cursor}`, { cookie: user.cookie })).json<SyncData>()
     expect(next.albums).toEqual([])
@@ -38,28 +47,28 @@ describe('albums, photo storage, trash, and delta sync in workerd', () => {
     const upload = await h.upload(user, id)
     expect(upload.status).toBe(201)
     expect(await upload.json()).toEqual({
-      photo: { id, albumId: 'selfies', dayKey: '2026-10-21', capturedAt: TEST_NOW, timeZone: 'America/Los_Angeles', tzOffsetMinutes: 420,
-        width: 100, height: 100, mime: 'image/jpeg', mirrored: true, source: 'camera', timerSeconds: 3,
-        masterBytes: 8, thumbBytes: 8, deletedAt: null }, replaced: [],
+      photo: { id, albumId: 'selfies', dayKey: '2026-10-21', capturedAt: TEST_NOW,
+        width: 100, height: 100, mime: 'image/jpeg', mirrored: true, timerSeconds: 3, deletedAt: null }, replaced: [],
     })
   })
 
-  it('upserts albums, trims names, preserves createdAt, and enforces unique names per user', async () => {
+  it('upserts albums, trims names, and enforces unique names per user', async () => {
     const user = await h.user()
     const path = `/api/albums/album-${photoId(2)}`
-    const created = await h.request(path, { method: 'PUT', cookie: user.cookie, json: { name: '  Journey  ', timeZone: 'America/Los_Angeles', createdAt: TEST_NOW - 100 } })
+    const created = await h.request(path, { method: 'PUT', cookie: user.cookie, json: { name: '  Journey  ', timeZone: 'America/Los_Angeles' } })
     expect(created.status).toBe(200)
-    const update = await h.request(path, { method: 'PUT', cookie: user.cookie, json: { name: 'Renamed', timeZone: null, createdAt: TEST_NOW }, now: TEST_NOW + 1 })
-    expect(await update.json()).toEqual({ album: { id: `album-${photoId(2)}`, name: 'Renamed', timeZone: null, createdAt: TEST_NOW - 100, updatedAt: TEST_NOW + 1, deletedAt: null } })
-    const duplicate = await h.request(`/api/albums/album-${photoId(3)}`, { method: 'PUT', cookie: user.cookie, json: { name: ' renamed ', timeZone: null, createdAt: TEST_NOW } })
+    const update = await h.request(path, { method: 'PUT', cookie: user.cookie, json: { name: 'Renamed', timeZone: null }, now: TEST_NOW + 1 })
+    expect(await update.json()).toEqual({ album: { id: `album-${photoId(2)}`, name: 'Renamed', timeZone: null, deletedAt: null } })
+    const duplicate = await h.request(`/api/albums/album-${photoId(3)}`, { method: 'PUT', cookie: user.cookie, json: { name: ' renamed ', timeZone: null } })
     expect(duplicate.status).toBe(409)
     expect(await duplicate.json()).toEqual({ error: 'album_name_taken' })
-    expect((await h.request(`/api/albums/album-${photoId(91)}`, { method: 'PUT', cookie: user.cookie, json: { name: 'Été', timeZone: null, createdAt: TEST_NOW } })).status).toBe(200)
-    const unicodeDuplicate = await h.request(`/api/albums/album-${photoId(92)}`, { method: 'PUT', cookie: user.cookie, json: { name: 'été', timeZone: null, createdAt: TEST_NOW } })
+    expect((await h.request(`/api/albums/album-${photoId(91)}`, { method: 'PUT', cookie: user.cookie, json: { name: 'Été', timeZone: null } })).status).toBe(200)
+    const unicodeDuplicate = await h.request(`/api/albums/album-${photoId(92)}`, { method: 'PUT', cookie: user.cookie, json: { name: 'été', timeZone: null } })
     expect(unicodeDuplicate.status).toBe(409)
     expect(await unicodeDuplicate.json()).toEqual({ error: 'album_name_taken' })
-    for (const body of [{ name: '', timeZone: null }, { name: 'a'.repeat(41), timeZone: null }, { name: 'Other', timeZone: 'Mars/Nope' }]) {
-      expect((await h.request(path, { method: 'PUT', cookie: user.cookie, json: { ...body, createdAt: TEST_NOW } })).status).toBe(400)
+    // Offset zones are refused here as they are for reminders, so an album's zone always works for its reminder.
+    for (const body of [{ name: '', timeZone: null }, { name: 'a'.repeat(41), timeZone: null }, { name: 'Other', timeZone: 'Mars/Nope' }, { name: 'Other', timeZone: '+01:00' }]) {
+      expect((await h.request(path, { method: 'PUT', cookie: user.cookie, json: body })).status).toBe(400)
     }
     expect((await h.request('/api/albums/not-an-id', { method: 'PUT', cookie: user.cookie, json: {} })).status).toBe(400)
   })
@@ -69,13 +78,13 @@ describe('albums, photo storage, trash, and delta sync in workerd', () => {
     const other = await h.user()
     const id = photoId(4)
     const albumId = `album-${photoId(5)}`
-    expect((await h.request(`/api/albums/${albumId}`, { method: 'PUT', cookie: owner.cookie, json: { name: 'Private', timeZone: null, createdAt: TEST_NOW } })).status).toBe(200)
+    expect((await h.request(`/api/albums/${albumId}`, { method: 'PUT', cookie: owner.cookie, json: { name: 'Private', timeZone: null } })).status).toBe(200)
     expect((await h.upload(owner, id, { meta: { albumId } })).status).toBe(201)
     for (const variant of ['master', 'thumb']) expect((await h.request(`/api/photos/${id}/${variant}`, { cookie: other.cookie })).status).toBe(404)
     expect((await h.request(`/api/photos/${id}`, { method: 'PATCH', cookie: other.cookie, json: { deletedAt: TEST_NOW } })).status).toBe(404)
     expect((await h.request(`/api/photos/${id}`, { method: 'DELETE', cookie: other.cookie })).status).toBe(404)
     expect((await h.upload(other, photoId(6), { meta: { albumId } })).status).toBe(404)
-    const albumUpdate = await h.request(`/api/albums/${albumId}`, { method: 'PUT', cookie: other.cookie, json: { name: 'Stolen', timeZone: null, createdAt: TEST_NOW } })
+    const albumUpdate = await h.request(`/api/albums/${albumId}`, { method: 'PUT', cookie: other.cookie, json: { name: 'Stolen', timeZone: null } })
     expect(albumUpdate.status).toBe(404)
     expect(await albumUpdate.json()).toEqual({ error: 'not_found' })
     const data = await (await h.request('/api/sync', { cookie: other.cookie })).json<SyncData>()
@@ -139,8 +148,8 @@ describe('albums, photo storage, trash, and delta sync in workerd', () => {
   })
 
   it.each([
-    { dayKey: '2026-02-30' }, { dayKey: 'tomorrow' }, { timerSeconds: 7 }, { source: 'unknown' },
-    { width: 0 }, { height: -1 }, { timeZone: 'No/Such_Zone' }, { mirrored: 'true' }, { capturedAt: -1 },
+    { dayKey: '2026-02-30' }, { dayKey: 'tomorrow' }, { timerSeconds: 7 },
+    { width: 0 }, { height: -1 }, { mirrored: 'true' }, { capturedAt: -1 }, { mime: 'image/png' },
   ])('rejects invalid photo metadata %#', async (meta) => {
     const user = await h.user()
     expect((await h.upload(user, photoId(9), { meta })).status).toBe(400)
@@ -177,8 +186,8 @@ describe('albums, photo storage, trash, and delta sync in workerd', () => {
   it('enforces the 5000-photo quota including trash', async () => {
     const user = await h.user()
     await h.sql(`WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 5000)
-      INSERT INTO photos (user_id,id,album_id,day_key,captured_at,time_zone,tz_offset_minutes,width,height,mime,mirrored,source,timer_seconds,master_bytes,thumb_bytes,deleted_at,purged_at,updated_at)
-      SELECT ?, printf('%020d', x), 'selfies', '2026-10-01', ?, NULL, 0, 1, 1, 'image/jpeg', 0, 'camera', 0, 1, 1, ?, NULL, ? FROM n`,
+      INSERT INTO photos (user_id,id,album_id,day_key,captured_at,width,height,mime,mirrored,timer_seconds,master_bytes,thumb_bytes,deleted_at,purged_at,updated_at)
+      SELECT ?, printf('%020d', x), 'selfies', '2026-10-01', ?, 1, 1, 'image/jpeg', 0, 0, 1, 1, ?, NULL, ? FROM n`,
     user.id, TEST_NOW, TEST_NOW, TEST_NOW)
     const response = await h.upload(user, photoId(20000))
     expect(response.status).toBe(413)
@@ -288,7 +297,7 @@ describe('albums, photo storage, trash, and delta sync in workerd', () => {
       data = next
     }
     expect(new Set(observed).size).toBe(4)
-    expect((await h.request('/api/albums/selfies', { method: 'PUT', cookie: user.cookie, json: { name: 'Changed', timeZone: null, createdAt: TEST_NOW } })).status).toBe(200)
+    expect((await h.request('/api/albums/selfies', { method: 'PUT', cookie: user.cookie, json: { name: 'Changed', timeZone: null } })).status).toBe(200)
     const after = await (await h.request(`/api/sync?since=${data.cursor}`, { cookie: user.cookie })).json<SyncData>()
     expect(after.albums.map((album) => album.name)).toEqual(['Changed'])
     expect(after.photos).toEqual([])

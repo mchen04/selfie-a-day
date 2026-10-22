@@ -45,15 +45,17 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => { root.unmount(); await Promise.resolve() })
   container.remove()
+  localStorage.clear()
   vi.unstubAllGlobals()
 })
 
 describe('app reminder integration', () => {
-  it('re-syncs on authenticated startup and reconnect without permission prompts', async () => {
+  it('re-syncs on authenticated startup, not again for an unchanged reconnect, without permission prompts', async () => {
     await render()
+    await vi.waitFor(() => expect(env.request).toHaveBeenCalledOnce())
+    await act(async () => { window.dispatchEvent(new Event('online')); document.dispatchEvent(new Event('visibilitychange')); await Promise.resolve() })
+    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(env.request).toHaveBeenCalledOnce()
-    await act(async () => { window.dispatchEvent(new Event('online')); await Promise.resolve() })
-    expect(env.request).toHaveBeenCalledTimes(2)
     expect(env.notification.requestPermission).not.toHaveBeenCalled()
   })
 

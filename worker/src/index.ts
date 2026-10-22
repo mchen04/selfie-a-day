@@ -52,7 +52,10 @@ export default {
         }
       }
       const now = Date.now()
-      const expectedUserId = request.method === 'PUT' && /^\/api\/photos\/[^/]+$/.test(url.pathname) ? request.headers.get('X-Selfie-User') : null
+      // A write names the account the device thinks is signed in; another tab
+      // may have signed in as someone else since (409 user_mismatch).
+      const expectedUserId = request.method !== 'GET' && request.method !== 'HEAD' && !url.pathname.startsWith('/api/auth/')
+        ? request.headers.get('X-Selfie-User') : null
       const session = await authenticate(request, env, now, expectedUserId)
       authenticated = session !== null
       renewal = session?.cookie

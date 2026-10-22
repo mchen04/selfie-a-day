@@ -1,14 +1,13 @@
 import { vi } from 'vitest'
 import { defaultAlbum } from '../../../src/core/albums.ts'
 import { newPhotoId } from '../../../src/core/id.ts'
-import { SCHEMA_VERSION, type PhotoMeta, type StoredImage } from '../../../src/core/types.ts'
+import type { PhotoMeta, StoredImage } from '../../../src/core/types.ts'
 import type { PhotoDTO, SyncResponse } from '../../../src/api/client.ts'
 import type { PendingPhoto } from '../../../src/storage/local.ts'
 
 export function photo(at = 1_800_000_000_000, albumId = 'selfies'): PhotoMeta {
-  return { id: newPhotoId(at), albumId, dayKey: '2027-01-15', capturedAt: at, timeZone: 'UTC', tzOffsetMinutes: 0,
-    width: 3, height: 4, mime: 'image/webp', mirrored: true, source: 'camera', timerSeconds: 0,
-    masterBytes: 16, thumbBytes: 4, deletedAt: null, schema: SCHEMA_VERSION }
+  return { id: newPhotoId(at), albumId, dayKey: '2027-01-15', capturedAt: at,
+    width: 3, height: 4, mime: 'image/webp', mirrored: true, timerSeconds: 0, deletedAt: null }
 }
 export function pending(userId: string, meta = photo()): PendingPhoto {
   const master: StoredImage = { id: meta.id, bytes: new ArrayBuffer(16), mime: meta.mime, width: 3, height: 4 }
@@ -24,7 +23,7 @@ export function server(initial: PhotoMeta[] = []) {
   const mocked = vi.fn((input: string, init?: RequestInit): Promise<Response> => {
     return Promise.resolve((() => {
     if (input === '/api/auth/me') return reply({ user })
-    if (input.startsWith('/api/sync')) return reply({ albums: [defaultAlbum()], photos, removed: [], cursor: String(++cursor), serverTime: Date.now() } satisfies SyncResponse)
+    if (input.startsWith('/api/sync')) return reply({ albums: [defaultAlbum()], photos, removed: [], cursor: String(++cursor) } satisfies SyncResponse)
     if (input.endsWith('/master')) return new Response(new Uint8Array(16), { headers: { 'Content-Type': 'image/webp' } })
     if (input.startsWith('/api/photos/') && init?.method === 'PUT') {
       const expected = new Headers(init.headers).get('X-Selfie-User')
@@ -36,7 +35,7 @@ export function server(initial: PhotoMeta[] = []) {
       const meta = JSON.parse((init.body as FormData).get('meta') as string) as PhotoDTO
       const replaced = photos.filter((item) => item.deletedAt === null && item.albumId === meta.albumId && item.dayKey === meta.dayKey).map((item) => item.id)
       photos = photos.map((item) => replaced.includes(item.id) ? { ...item, deletedAt: Date.now() } : item)
-      const saved = { ...meta, id, masterBytes: 16, thumbBytes: 4, deletedAt: null }
+      const saved = { ...meta, id, deletedAt: null }
       photos.push(saved)
       return reply({ photo: saved, replaced }, 201)
     }

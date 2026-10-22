@@ -1,5 +1,5 @@
 import { api, ApiError, cacheThumbnail, photoBlob, requireUser, uploadPhoto, type User } from '../api/client.ts'
-import { SCHEMA_VERSION, type Album, type PhotoMeta, type StoredImage } from '../core/types.ts'
+import type { Album, PhotoMeta, StoredImage } from '../core/types.ts'
 import {
   listGhostRefs, listPending, putGhost, queuePhoto, readSnapshot, removeGhost,
   removePending, updatePending, writeSnapshot, type PendingPhoto, type Snapshot,
@@ -88,7 +88,8 @@ export class SyncEngine {
       try {
         while (this.active && (this.refreshRequested || this.uploadRequested)) {
           try {
-            if (!this.uploadRequested) {
+            const pulled = !this.uploadRequested
+            if (pulled) {
               this.refreshRequested = false
               const shared = session !== undefined
               const verified = requireUser(this.user.id, session ?? api.me(this.sessionController.signal), this.sessionController.signal)
@@ -99,10 +100,11 @@ export class SyncEngine {
                 await this.pull(verified, signal)
               })
             }
-            await this.flushUploads()
+            const uploaded = await this.flushUploads()
             if (!this.active) return
             await this.read(async (signal) => {
-              await this.pull(undefined, signal)
+              // A refresh that uploaded nothing already has the server's state.
+              if (uploaded || !pulled) await this.pull(undefined, signal)
               await this.reconcileGhosts(signal)
             })
           } catch (error) {
@@ -154,8 +156,8 @@ export class SyncEngine {
     if (!this.active) return
     const albums = new Map((full ? [] : this.state.albums).map((album) => [album.id, album]))
     const photos = new Map((full ? [] : this.state.photos).map((photo) => [photo.id, photo]))
-    for (const album of delta.albums) albums.set(album.id, { ...album, schema: SCHEMA_VERSION })
-    for (const photo of delta.photos) photos.set(photo.id, { ...photo, schema: SCHEMA_VERSION })
+    for (const album of delta.albums) albums.set(album.id, album)
+    for (const photo of delta.photos) photos.set(photo.id, photo)
     for (const id of delta.removed) photos.delete(id)
     this.emit({ albums: [...albums.values()].filter((album) => album.deletedAt === null), photos: [...photos.values()], cursor: delta.cursor })
     await this.persist()
@@ -173,33 +175,38 @@ export class SyncEngine {
     return write
   }
 
-  private async flushUploads() {
+  /** Uploads what is due; resolves to how many photos the server accepted. */
+  private async flushUploads(): Promise<number> {
+    let uploaded = 0
     do {
       await Promise.all(this.writes)
       this.uploadRequested = false
-      await this.flush()
+      uploaded += await this.flush()
     } while (this.active && this.uploadRequested)
+    return uploaded
   }
 
-  private async flush() {
+  private async flush(): Promise<number> {
+    let uploaded = 0
     for (const entry of await listPending(this.user.id)) {
-      if (!this.active || this.uploadBlocked || entry.userId !== this.user.id) return
+      if (!this.active || this.uploadBlocked || entry.userId !== this.user.id) return uploaded
       if (entry.nextAttemptAt > Date.now()) continue
       try {
         const result = await uploadPhoto(entry.userId, entry.meta,
           new Blob([entry.master.bytes], { type: entry.master.mime }),
           new Blob([entry.thumb.bytes], { type: entry.thumb.mime }))
-        if (!this.active) return
+        if (!this.active) return uploaded
+        uploaded++
         const replaced = new Set(result.replaced)
         const photos = this.state.photos.filter((photo) => photo.id !== result.photo.id)
           .map((photo) => replaced.has(photo.id) ? { ...photo, deletedAt: Date.now() } : photo)
-        photos.push({ ...result.photo, schema: SCHEMA_VERSION })
+        photos.push(result.photo)
         this.emit({ photos })
         await this.persist()
         await removePending(this.user.id, entry.meta.id)
         cacheThumbnail(entry.meta.id)
       } catch (error) {
-        if (!this.active) return
+        if (!this.active) return uploaded
         if (error instanceof ApiError && error.code === 'user_mismatch') {
           this.uploadBlocked = true
           this.uploadRequested = false
@@ -216,6 +223,7 @@ export class SyncEngine {
       }
       this.emit({ pending: await listPending(this.user.id) })
     }
+    return uploaded
   }
 
   private scheduleRetry() {
@@ -287,14 +295,13 @@ export class SyncEngine {
       const target = this.state.photos.find((photo) => photo.id === id)
       const pending = this.state.pending.find((entry) => entry.meta.id === id || (entry.meta.albumId === target?.albumId && entry.meta.dayKey === target.dayKey))
       if (pending) throw new Error('Wait for this photo to upload before changing it.')
-      await requireUser(this.user.id)
       if (!this.active) return
       if (deletedAt === 'purge') {
-        await api.deletePhoto(id)
+        await api.deletePhoto(this.user.id, id)
         await this.savePhotos(previous.filter((photo) => photo.id !== id))
       } else {
-        const { photo } = await api.patchPhoto(id, deletedAt)
-        await this.savePhotos(previous.map((item) => item.id === id ? { ...photo, schema: SCHEMA_VERSION } : item))
+        const { photo } = await api.patchPhoto(this.user.id, id, deletedAt)
+        await this.savePhotos(previous.map((item) => item.id === id ? photo : item))
       }
       await this.pull().catch(() => undefined)
       await this.reconcileGhosts().catch(() => undefined)
@@ -304,8 +311,7 @@ export class SyncEngine {
   emptyTrash(): Promise<number> {
     return this.run(async () => {
       const previous = this.state.photos
-      await requireUser(this.user.id)
-      const { deleted } = await api.emptyTrash()
+      const { deleted } = await api.emptyTrash(this.user.id)
       await this.savePhotos(previous.filter((photo) => photo.deletedAt === null))
       await this.pull().catch(() => undefined)
       return deleted
@@ -314,8 +320,7 @@ export class SyncEngine {
 
   saveAlbum(album: Album): Promise<Album> {
     return this.run(async () => {
-      await requireUser(this.user.id)
-      const saved = { ...(await api.album(album)).album, schema: SCHEMA_VERSION }
+      const { album: saved } = await api.album(this.user.id, album)
       this.emit({ albums: [...this.state.albums.filter((item) => item.id !== saved.id), saved] })
       await this.persist()
       await this.pull().catch(() => undefined)

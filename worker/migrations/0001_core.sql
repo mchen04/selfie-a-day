@@ -3,17 +3,13 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE users (
   id TEXT PRIMARY KEY,
   username TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
-  created_at INTEGER NOT NULL
+  password_hash TEXT NOT NULL
 );
 CREATE TABLE sessions (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
-  created_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL,
-  last_seen_at INTEGER NOT NULL
+  expires_at INTEGER NOT NULL
 );
-CREATE INDEX sessions_user ON sessions(user_id);
 CREATE INDEX sessions_expiry ON sessions(expires_at);
 CREATE TABLE auth_attempts (
   key TEXT PRIMARY KEY,
@@ -35,16 +31,14 @@ CREATE TABLE albums (
   user_id TEXT NOT NULL REFERENCES users(id),
   id TEXT NOT NULL,
   name TEXT NOT NULL,
-  name_key TEXT,
+  name_key TEXT NOT NULL,
   time_zone TEXT,
-  created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   deleted_at INTEGER,
   revision INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (user_id, id)
 );
-CREATE UNIQUE INDEX albums_active_name ON albums(user_id, lower(name)) WHERE deleted_at IS NULL;
-CREATE UNIQUE INDEX albums_active_name_key ON albums(user_id, name_key) WHERE deleted_at IS NULL AND name_key IS NOT NULL;
+CREATE UNIQUE INDEX albums_active_name_key ON albums(user_id, name_key) WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX albums_owned_id ON albums(id) WHERE id <> 'selfies';
 CREATE INDEX albums_sync ON albums(user_id, revision);
 CREATE TABLE photos (
@@ -53,13 +47,10 @@ CREATE TABLE photos (
   album_id TEXT NOT NULL,
   day_key TEXT NOT NULL,
   captured_at INTEGER NOT NULL,
-  time_zone TEXT,
-  tz_offset_minutes INTEGER NOT NULL,
   width INTEGER NOT NULL,
   height INTEGER NOT NULL,
   mime TEXT NOT NULL,
   mirrored INTEGER NOT NULL,
-  source TEXT NOT NULL,
   timer_seconds INTEGER NOT NULL DEFAULT 0,
   master_bytes INTEGER NOT NULL,
   thumb_bytes INTEGER NOT NULL,
@@ -70,7 +61,6 @@ CREATE TABLE photos (
   PRIMARY KEY (user_id, id),
   FOREIGN KEY (user_id, album_id) REFERENCES albums(user_id, id)
 );
-CREATE INDEX photos_updated ON photos(user_id, updated_at);
 CREATE INDEX photos_album_day ON photos(user_id, album_id, day_key);
 CREATE INDEX photos_sync ON photos(user_id, revision);
 CREATE INDEX photos_trash ON photos(deleted_at) WHERE purged_at IS NULL AND deleted_at IS NOT NULL;

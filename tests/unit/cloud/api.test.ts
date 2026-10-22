@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api, ApiError, onSignedOut, uploadPhoto } from '../../../src/api/client.ts'
+import { defaultAlbum } from '../../../src/core/albums.ts'
 import { photo, reply } from './fixtures.ts'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -66,6 +67,20 @@ describe('API contract', () => {
   })
   it('maps restore conflicts to an actionable message', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply({ error: 'day_taken' }, 409)))
-    await expect(api.patchPhoto(photo().id, null)).rejects.toThrow(/already has a photo/)
+    await expect(api.patchPhoto('synthetic-a', photo().id, null)).rejects.toThrow(/already has a photo/)
+  })
+  it('names the account on every photo and album write, and signs out when the session now belongs to another', async () => {
+    const fetch = vi.fn((_path: string, _init: RequestInit) => Promise.resolve(reply({ error: 'user_mismatch' }, 409)))
+    vi.stubGlobal('fetch', fetch)
+    const signedOut = vi.fn()
+    const off = onSignedOut(signedOut)
+    try {
+      for (const write of [
+        () => api.patchPhoto('synthetic-a', photo().id, 1), () => api.deletePhoto('synthetic-a', photo().id), () => api.emptyTrash('synthetic-a'),
+        () => api.album('synthetic-a', { ...defaultAlbum(), name: 'Synthetic' }),
+      ]) await expect(write()).rejects.toMatchObject({ status: 401, code: 'unauthenticated' })
+      expect(fetch.mock.calls.map(([, init]) => new Headers(init.headers).get('X-Selfie-User'))).toEqual(Array(4).fill('synthetic-a'))
+      expect(signedOut).toHaveBeenCalledTimes(4)
+    } finally { off() }
   })
 })

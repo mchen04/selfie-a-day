@@ -403,7 +403,7 @@ describe('scheduler and Web Push encryption', () => {
     await subscribe()
     await pref('09:00', 'UTC', 'selfies', 'alice', false)
     await pref('09:00', 'UTC', 'selfies', 'bob')
-    await fixture.env.DB.prepare("INSERT INTO push_prefs VALUES ('alice', 'album-bbbbbbbbbbbbbbbbbbbb', 1, '09:00', 'UTC', 0)").run()
+    await fixture.env.DB.prepare("INSERT INTO push_prefs VALUES ('alice', 'album-bbbbbbbbbbbbbbbbbbbb', 1, '09:00', 'UTC')").run()
     expect(await runPushScheduler(fixture.env, at('2026-07-01T09:00:00Z'))).toEqual({ sent: 0, skipped: 0, removed: 0, failed: 0 })
     expect(fixture.received).toHaveLength(0)
   })

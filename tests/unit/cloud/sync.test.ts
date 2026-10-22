@@ -95,7 +95,8 @@ describe('sync', () => {
 
   it.each(['first pull', 'second pull', 'ghost download', 'upload'])('joins a capture to the refresh during %s without duplicate checks before its PUT', async (phase) => {
     const original = photo(), capture = pending('synthetic-a', photo(original.capturedAt + 1))
-    if (phase === 'upload') await queuePhoto(pending('synthetic-a', original))
+    // The refresh pulls a second time only after it uploaded something.
+    if (phase === 'upload' || phase === 'second pull') await queuePhoto(pending('synthetic-a', original))
     const { mocked, uploadIds } = server(phase === 'ghost download' ? [original] : [])
     const respond = mocked.getMockImplementation()!
     let entered: (() => void) | undefined
@@ -227,10 +228,10 @@ describe('sync', () => {
     sync.mockImplementation((cursor) => cursor === 'stale' ? Promise.reject(new ApiError(400, 'invalid_cursor')) : original(cursor))
     const current = engine()
     await current.hydrate(); await current.refresh()
-    expect(sync.mock.calls.map(([cursor]) => cursor)).toEqual(['stale', undefined, '1'])
+    expect(sync.mock.calls.map(([cursor]) => cursor)).toEqual(['stale', undefined])
     expect(current.state.photos.map((item) => item.id)).toEqual([currentPhoto.id])
     expect(await listPending('synthetic-a')).toHaveLength(1)
-    expect((await readSnapshot('synthetic-a'))?.cursor).toBe('2')
+    expect((await readSnapshot('synthetic-a'))?.cursor).toBe('1')
     expect(current.state.error).toBeNull()
   })
 
@@ -301,7 +302,17 @@ describe('sync', () => {
     expect(current.state.photos).toHaveLength(1)
     await current.refresh()
     expect(mocked.mock.calls.map((call) => call[0])).toContain('/api/sync?since=cached%20cursor')
-    expect((await readSnapshot('synthetic-a'))?.cursor).toBe('2')
+    expect((await readSnapshot('synthetic-a'))?.cursor).toBe('1')
+  })
+  it('refreshes with one session check and one delta sync when nothing uploads, and still restores the ghost', async () => {
+    const first = photo()
+    await writeSnapshot('synthetic-a', { albums: [defaultAlbum()], photos: [first], cursor: 'cached' })
+    const { mocked } = server([first])
+    const current = engine()
+    await current.hydrate()
+    await current.refresh()
+    expect(mocked.mock.calls.map(([url]) => url)).toEqual(['/api/auth/me', '/api/sync?since=cached', `/api/photos/${first.id}/master`])
+    expect((await listGhosts('synthetic-a')).map((ghost) => ghost.image.id)).toEqual([first.id])
   })
   it('merges changed rows and removes purged ids without losing unchanged photos', async () => {
     const a = photo(), b = photo(1_800_000_000_001), c = photo(1_800_000_000_002)
@@ -425,6 +436,29 @@ describe('sync', () => {
     }
     await reloaded
     expect(next.visiblePhotos()[0]?.deletedAt).toBeNull()
+  })
+  it('trashes, empties Trash and saves an album with one named write each and no session check first', async () => {
+    const original = photo()
+    const { mocked } = server([original])
+    const respond = mocked.getMockImplementation()!
+    mocked.mockImplementation((url, init) => {
+      if (init?.method === 'PATCH') return Promise.resolve(reply({ photo: { ...original, deletedAt: 100 } }))
+      if (url === '/api/trash/empty') return Promise.resolve(reply({ deleted: 1 }))
+      if (url.startsWith('/api/albums/')) return Promise.resolve(reply({ album: { ...defaultAlbum(), name: 'Synthetic' } }))
+      return respond(url, init)
+    })
+    const current = engine()
+    await current.hydrate(); await current.refresh()
+    const start = mocked.mock.calls.length
+    await current.mutatePhoto(original.id, 100)
+    await current.emptyTrash()
+    await current.saveAlbum({ ...defaultAlbum(), name: 'Synthetic' })
+    const calls = mocked.mock.calls.slice(start)
+    expect(calls.filter(([url]) => url === '/api/auth/me')).toHaveLength(0)
+    const writes = calls.filter(([, init]) => init?.method && init.method !== 'GET')
+    expect(writes.map(([url, init]) => [init?.method, url, new Headers(init?.headers).get('X-Selfie-User')])).toEqual([
+      ['PATCH', `/api/photos/${original.id}`, 'synthetic-a'], ['POST', '/api/trash/empty', 'synthetic-a'], ['PUT', '/api/albums/selfies', 'synthetic-a'],
+    ])
   })
   it('rolls back failed trash, permanent delete, and empty actions', async () => {
     const original = photo()

@@ -1,6 +1,6 @@
 import type { D1PreparedStatement } from '@cloudflare/workers-types'
 import type { Env } from './env'
-import { boundedBody, empty, HttpError, isAlbumId, isPhotoId, isTimestamp, json, readJson, validTimeZone } from './http'
+import { boundedBody, empty, HttpError, isAlbumId, isPhotoId, isTimestamp, json, readJson } from './http'
 import { PHOTO_COLUMNS, photoDto, type PhotoRow } from './records'
 
 const MASTER_LIMIT = 4 * 1024 * 1024
@@ -11,13 +11,10 @@ interface UploadMeta {
   albumId: string
   dayKey: string
   capturedAt: number
-  timeZone: string | null
-  tzOffsetMinutes: number
   width: number
   height: number
   mime: string
   mirrored: boolean
-  source: string
   timerSeconds: number
 }
 
@@ -35,12 +32,10 @@ function validMeta(value: unknown): value is UploadMeta {
   if (typeof value !== 'object' || value === null) return false
   const meta = value as Record<string, unknown>
   return isAlbumId(meta.albumId) && validDay(meta.dayKey) && isTimestamp(meta.capturedAt)
-    && (meta.timeZone === null || validTimeZone(meta.timeZone))
-    && typeof meta.tzOffsetMinutes === 'number' && Number.isInteger(meta.tzOffsetMinutes) && Math.abs(meta.tzOffsetMinutes) <= 1440
     && typeof meta.width === 'number' && Number.isSafeInteger(meta.width) && meta.width > 0
     && typeof meta.height === 'number' && Number.isSafeInteger(meta.height) && meta.height > 0
     && (meta.mime === 'image/jpeg' || meta.mime === 'image/webp')
-    && typeof meta.mirrored === 'boolean' && (meta.source === 'camera' || meta.source === 'file')
+    && typeof meta.mirrored === 'boolean'
     && typeof meta.timerSeconds === 'number' && [0, 3, 5, 10].includes(meta.timerSeconds)
 }
 
@@ -135,11 +130,11 @@ export async function uploadPhoto(request: Request, env: Env, userId: string, id
       env.DB.prepare(`UPDATE photos SET deleted_at = ?, updated_at = ?
         WHERE user_id = ? AND album_id = ? AND day_key = ? AND deleted_at IS NULL AND purged_at IS NULL RETURNING id`)
         .bind(now, now, userId, meta.albumId, meta.dayKey),
-      env.DB.prepare(`INSERT INTO photos (user_id, id, album_id, day_key, captured_at, time_zone, tz_offset_minutes,
-        width, height, mime, mirrored, source, timer_seconds, master_bytes, thumb_bytes, deleted_at, purged_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?) RETURNING ${PHOTO_COLUMNS}`)
-        .bind(userId, id, meta.albumId, meta.dayKey, meta.capturedAt, meta.timeZone, meta.tzOffsetMinutes,
-          meta.width, meta.height, meta.mime, meta.mirrored ? 1 : 0, meta.source, meta.timerSeconds,
+      env.DB.prepare(`INSERT INTO photos (user_id, id, album_id, day_key, captured_at,
+        width, height, mime, mirrored, timer_seconds, master_bytes, thumb_bytes, deleted_at, purged_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?) RETURNING ${PHOTO_COLUMNS}`)
+        .bind(userId, id, meta.albumId, meta.dayKey, meta.capturedAt,
+          meta.width, meta.height, meta.mime, meta.mirrored ? 1 : 0, meta.timerSeconds,
           master.bytes.byteLength, thumb.bytes.byteLength, now),
     ])
     const row = inserted!.results[0] as PhotoRow

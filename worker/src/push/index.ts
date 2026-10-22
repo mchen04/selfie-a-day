@@ -1,17 +1,9 @@
 import type { PushEnv } from './types'
-import { HttpError, readJson } from '../core/http'
-import { isRecord, validEndpoint, validKeys, validTimeZone } from './validation'
+import { empty, HttpError, json, readJson, validTimeZone } from '../core/http'
+import { isRecord, validEndpoint, validKeys } from './validation'
 
 export type { PushEnv } from './types'
 export { runPushScheduler } from './scheduler'
-
-function json(value: unknown, status = 200): Response {
-  return Response.json(value, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } })
-}
-
-function empty(): Response {
-  return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } })
-}
 
 interface PrefRow {
   album_id: string
@@ -79,9 +71,9 @@ export async function handlePush(request: Request, env: PushEnv, ctx: { userId: 
   if (typeof body.enabled !== 'boolean') return json({ error: 'invalid_enabled' }, 400)
   if (typeof body.time !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(body.time)) return json({ error: 'invalid_time' }, 400)
   if (!validTimeZone(body.timeZone)) return json({ error: 'invalid_time_zone' }, 400)
-  await env.DB.prepare(`INSERT INTO push_prefs (user_id, album_id, enabled, time, time_zone, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, album_id) DO UPDATE SET
-    enabled = excluded.enabled, time = excluded.time, time_zone = excluded.time_zone, updated_at = excluded.updated_at`)
-    .bind(ctx.userId, albumId, Number(body.enabled), body.time, body.timeZone, Date.now()).run()
+  await env.DB.prepare(`INSERT INTO push_prefs (user_id, album_id, enabled, time, time_zone)
+    VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, album_id) DO UPDATE SET
+    enabled = excluded.enabled, time = excluded.time, time_zone = excluded.time_zone`)
+    .bind(ctx.userId, albumId, Number(body.enabled), body.time, body.timeZone).run()
   return json({ pref: { albumId, enabled: body.enabled, time: body.time, timeZone: body.timeZone } })
 }

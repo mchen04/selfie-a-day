@@ -1,5 +1,5 @@
 import type { Env } from './env'
-import { HttpError, isAlbumId, isTimestamp, json, readJson, validTimeZone } from './http'
+import { HttpError, isAlbumId, json, readJson, validTimeZone } from './http'
 import { ALBUM_COLUMNS, albumDto, type AlbumRow } from './records'
 
 export async function putAlbum(request: Request, env: Env, userId: string, id: string, now: number): Promise<Response> {
@@ -8,12 +8,11 @@ export async function putAlbum(request: Request, env: Env, userId: string, id: s
   const name = typeof body.name === 'string' ? body.name.trim() : ''
   if (name.length < 1 || name.length > 40) throw new HttpError(400, 'invalid_name')
   if (body.timeZone !== null && !validTimeZone(body.timeZone)) throw new HttpError(400, 'invalid_time_zone')
-  if (!isTimestamp(body.createdAt)) throw new HttpError(400, 'invalid_created_at')
   try {
-    const row = await env.DB.prepare(`INSERT INTO albums (user_id, id, name, name_key, time_zone, created_at, updated_at, deleted_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, NULL) ON CONFLICT(user_id, id) DO UPDATE SET
+    const row = await env.DB.prepare(`INSERT INTO albums (user_id, id, name, name_key, time_zone, updated_at, deleted_at)
+      VALUES (?, ?, ?, ?, ?, ?, NULL) ON CONFLICT(user_id, id) DO UPDATE SET
       name = excluded.name, name_key = excluded.name_key, time_zone = excluded.time_zone, updated_at = excluded.updated_at
-      RETURNING ${ALBUM_COLUMNS}`).bind(userId, id, name, name.toLowerCase(), body.timeZone, body.createdAt, now).first<AlbumRow>()
+      RETURNING ${ALBUM_COLUMNS}`).bind(userId, id, name, name.toLowerCase(), body.timeZone, now).first<AlbumRow>()
     if (!row) throw new Error('album_failed')
     return json({ album: albumDto(row) })
   } catch (error) {

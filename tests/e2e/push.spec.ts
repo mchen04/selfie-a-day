@@ -183,7 +183,7 @@ test('two taps enable one encrypted reminder; a saved photo suppresses the eveni
     const uploaded = await upload
     expect(uploaded.status()).toBe(201)
     const { photo } = await uploaded.json() as { photo: PhotoDTO }
-    expect(photo).toMatchObject({ dayKey: schedule.dayKey, timeZone: pref.timeZone })
+    expect(photo.dayKey).toBe(schedule.dayKey)
     await runCron(schedule.evening)
     await runCron(schedule.evening + 25 * 60_000)
     expect(errors).toEqual([])

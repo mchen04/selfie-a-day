@@ -4,7 +4,7 @@ import { resyncDevice } from './client.ts'
 export function usePushSync(userId: string | undefined): void {
   useEffect(() => {
     if (!userId) return
-    const sync = () => { if (!document.hidden) void resyncDevice().catch(() => undefined) }
+    const sync = () => { if (!document.hidden) void resyncDevice(userId).catch(() => undefined) }
     sync()
     window.addEventListener('online', sync)
     document.addEventListener('visibilitychange', sync)

@@ -30,7 +30,7 @@ let app: AppContextValue
 let camera: CameraHandle
 
 function album(id = 'selfies'): Album {
-  return { id, name: id, timeZone: 'UTC', createdAt: 1, updatedAt: 1, deletedAt: null, schema: 2 }
+  return { id, name: id, timeZone: 'UTC', deletedAt: null }
 }
 
 function photo(seconds = 0, capturedAt = Date.now()): CaptureResult {
@@ -39,8 +39,7 @@ function photo(seconds = 0, capturedAt = Date.now()): CaptureResult {
     timerSeconds: seconds,
     meta: {
       id: 'photo', albumId: app.activeAlbum.id, dayKey: dayKeyOf(new Date(capturedAt), 'UTC'),
-      capturedAt, timeZone: 'UTC', tzOffsetMinutes: 0, width: 720, height: 960, mime: 'image/webp',
-      mirrored: true, source: 'camera', timerSeconds: seconds, masterBytes: 4, thumbBytes: 4, deletedAt: null, schema: 2,
+      capturedAt, width: 720, height: 960, mime: 'image/webp', mirrored: true, timerSeconds: seconds, deletedAt: null,
     },
     master: image, thumb: image,
   }

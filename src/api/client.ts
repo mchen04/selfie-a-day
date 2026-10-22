@@ -1,14 +1,13 @@
 import type { Album, PhotoMeta } from '../core/types.ts'
 
 export interface User { id: string; username: string }
-export type AlbumDTO = Omit<Album, 'schema'>
-export type PhotoDTO = Omit<PhotoMeta, 'schema'>
+export type AlbumDTO = Album
+export type PhotoDTO = PhotoMeta
 export interface SyncResponse {
   albums: AlbumDTO[]
   photos: PhotoDTO[]
   removed: string[]
   cursor: string
-  serverTime: number
 }
 
 export interface PushPreference { albumId: string; enabled: boolean; time: string; timeZone: string }
@@ -51,13 +50,15 @@ export function onSignedOut(listener: () => void): () => void {
   return () => { signedOutListeners.delete(listener) }
 }
 
+function signOut(): never {
+  for (const listener of signedOutListeners) listener()
+  throw new ApiError(401, 'unauthenticated')
+}
+
 export async function requireUser(userId: string, session = api.me(), signal?: AbortSignal): Promise<void> {
   const { user } = await session
   signal?.throwIfAborted()
-  if (user.id !== userId) {
-    for (const listener of signedOutListeners) listener()
-    throw new ApiError(401, 'unauthenticated')
-  }
+  if (user.id !== userId) signOut()
 }
 
 async function request(path: string, init: RequestInit = {}, auth = true): Promise<Response> {
@@ -76,15 +77,30 @@ async function request(path: string, init: RequestInit = {}, auth = true): Promi
   return response
 }
 
-export async function json<T>(path: string, method = 'GET', body?: unknown, auth = true, signal?: AbortSignal): Promise<T> {
+export async function json<T>(path: string, method = 'GET', body?: unknown, auth = true, signal?: AbortSignal, userId?: string): Promise<T> {
+  const headers = new Headers(userId ? { 'X-Selfie-User': userId } : {})
+  if (body !== undefined) headers.set('Content-Type', 'application/json')
   const response = await request(path, {
-    method,
+    method, headers,
     ...(signal ? { signal } : {}),
-    ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   }, auth)
   const result = (response.status === 204 ? undefined : await response.json()) as T
   signal?.throwIfAborted()
   return result
+}
+
+/**
+ * A change to `userId`'s photos or albums. The Worker refuses it with
+ * user_mismatch when the session cookie now belongs to another account (another
+ * tab signed in); this device then signs out, as a failed `requireUser` does.
+ */
+async function write<T>(userId: string, path: string, method: string, body?: unknown): Promise<T> {
+  try { return await json<T>(path, method, body, true, undefined, userId) }
+  catch (error) {
+    if (error instanceof ApiError && error.code === 'user_mismatch') signOut()
+    throw error
+  }
 }
 
 export const api = {
@@ -93,12 +109,12 @@ export const api = {
   signup: (username: string, password: string) => json<{ user: User }>('/auth/signup', 'POST', { username, password }, false),
   logout: () => json<void>('/auth/logout', 'POST'),
   sync: (cursor?: string, signal?: AbortSignal) => json<SyncResponse>(`/sync${cursor ? `?since=${encodeURIComponent(cursor)}` : ''}`, 'GET', undefined, true, signal),
-  album: (album: AlbumDTO) => json<{ album: AlbumDTO }>(`/albums/${encodeURIComponent(album.id)}`, 'PUT', {
-    name: album.name, timeZone: album.timeZone, createdAt: album.createdAt,
+  album: (userId: string, album: AlbumDTO) => write<{ album: AlbumDTO }>(userId, `/albums/${encodeURIComponent(album.id)}`, 'PUT', {
+    name: album.name, timeZone: album.timeZone,
   }),
-  patchPhoto: (id: string, deletedAt: number | null) => json<{ photo: PhotoDTO }>(`/photos/${id}`, 'PATCH', { deletedAt }),
-  deletePhoto: (id: string) => json<void>(`/photos/${id}`, 'DELETE'),
-  emptyTrash: () => json<{ deleted: number }>('/trash/empty', 'POST'),
+  patchPhoto: (userId: string, id: string, deletedAt: number | null) => write<{ photo: PhotoDTO }>(userId, `/photos/${id}`, 'PATCH', { deletedAt }),
+  deletePhoto: (userId: string, id: string) => write<void>(userId, `/photos/${id}`, 'DELETE'),
+  emptyTrash: (userId: string) => write<{ deleted: number }>(userId, '/trash/empty', 'POST'),
   removeSubscription: (endpoint: string) => json<void>('/push/subscription', 'DELETE', { endpoint }),
   pushConfig: () => json<{ publicKey: string }>('/push/config'),
   pushPrefs: () => json<{ prefs: PushPreference[] }>('/push/prefs'),
@@ -111,10 +127,8 @@ export const api = {
 export async function uploadPhoto(userId: string, meta: PhotoMeta, master: Blob, thumb: Blob): Promise<{ photo: PhotoDTO; replaced: string[] }> {
   const form = new FormData()
   form.set('meta', JSON.stringify({
-    albumId: meta.albumId, dayKey: meta.dayKey, capturedAt: meta.capturedAt,
-    timeZone: meta.timeZone, tzOffsetMinutes: meta.tzOffsetMinutes, width: meta.width,
-    height: meta.height, mime: meta.mime, mirrored: meta.mirrored, source: meta.source,
-    timerSeconds: meta.timerSeconds,
+    albumId: meta.albumId, dayKey: meta.dayKey, capturedAt: meta.capturedAt, width: meta.width,
+    height: meta.height, mime: meta.mime, mirrored: meta.mirrored, timerSeconds: meta.timerSeconds,
   }))
   form.set('master', master, 'master')
   form.set('thumb', thumb, 'thumb')

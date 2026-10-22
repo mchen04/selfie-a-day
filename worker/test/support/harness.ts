@@ -76,8 +76,8 @@ export class Harness {
 
   upload(user: TestUser, id: string, options: { meta?: Record<string, unknown>; master?: Uint8Array<ArrayBuffer>; thumb?: Uint8Array<ArrayBuffer>; masterMime?: string; thumbMime?: string; now?: number } = {}): Promise<WorkerResponse> {
     const meta = {
-      albumId: 'selfies', dayKey: '2026-10-21', capturedAt: TEST_NOW, timeZone: 'America/Los_Angeles',
-      tzOffsetMinutes: 420, width: 100, height: 100, mime: 'image/jpeg', mirrored: true, source: 'camera', timerSeconds: 3,
+      albumId: 'selfies', dayKey: '2026-10-21', capturedAt: TEST_NOW,
+      width: 100, height: 100, mime: 'image/jpeg', mirrored: true, timerSeconds: 3,
       ...options.meta,
     }
     const form = new FormData()
@@ -140,9 +140,8 @@ export async function createHarness(secure = true): Promise<Harness> {
 export function photoId(value: number): string { return value.toString(36).padStart(20, '0') }
 
 export interface SyncData {
-  albums: { id: string; name: string; timeZone: string | null; createdAt: number; updatedAt: number; deletedAt: number | null }[]
-  photos: { id: string; deletedAt: number | null; timerSeconds: number; masterBytes: number; thumbBytes: number }[]
+  albums: { id: string; name: string; timeZone: string | null; deletedAt: number | null }[]
+  photos: { id: string; deletedAt: number | null; timerSeconds: number }[]
   removed: string[]
   cursor: string
-  serverTime: number
 }

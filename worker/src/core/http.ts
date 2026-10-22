@@ -62,8 +62,9 @@ export async function readJson(request: Request): Promise<Record<string, unknown
   }
 }
 
+/** An IANA zone name, as the Settings picker offers. Offsets such as "+01:00" are refused for albums and reminders alike. */
 export function validTimeZone(value: unknown): value is string {
-  if (typeof value !== 'string' || value.length > 100) return false
+  if (typeof value !== 'string' || value.length > 100 || /^[+-]/.test(value)) return false
   try {
     new Intl.DateTimeFormat('en', { timeZone: value }).format(0)
     return true

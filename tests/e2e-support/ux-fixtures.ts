@@ -44,15 +44,14 @@ export async function uxFixtures(page: Page, options: UxOptions = {}) {
   const now = Date.now()
   const user = { id: `ux-${randomUUID()}`, username: 'daily-selfie' }
   const albums: AlbumDTO[] = [
-    { id: 'selfies', name: 'Selfies', timeZone: 'UTC', createdAt: now, updatedAt: now, deletedAt: null },
-    { id: 'album-00000000000000000001', name: 'A very long album name for daily portraits', timeZone: null, createdAt: now, updatedAt: now, deletedAt: null },
+    { id: 'selfies', name: 'Selfies', timeZone: 'UTC', deletedAt: null },
+    { id: 'album-00000000000000000001', name: 'A very long album name for daily portraits', timeZone: null, deletedAt: null },
   ]
   const photos: PhotoDTO[] = Array.from({ length: (options.photos ?? 0) + (options.trash ?? 0) }, (_, index) => {
     const capturedAt = now - (index + 1) * 86_400_000
     return {
       id: index.toString(36).padStart(20, '0'), albumId: 'selfies', dayKey: new Date(capturedAt).toISOString().slice(0, 10),
-      capturedAt, timeZone: 'UTC', tzOffsetMinutes: 0, width: 300, height: 400, mime: 'image/jpeg', mirrored: false,
-      source: 'file', timerSeconds: 0, masterBytes: portrait.length, thumbBytes: portrait.length,
+      capturedAt, width: 300, height: 400, mime: 'image/jpeg', mirrored: false, timerSeconds: 0,
       deletedAt: index >= (options.photos ?? 0) ? now : null,
     }
   })
@@ -105,7 +104,7 @@ export async function uxFixtures(page: Page, options: UxOptions = {}) {
       return json({ user }, path.endsWith('signup') ? 201 : 200)
     }
     if (path === '/api/auth/logout') { signedIn = false; return route.fulfill({ status: 204 }) }
-    if (path === '/api/sync') return json({ albums, photos, removed: [], cursor: String(Date.now()), serverTime: Date.now() })
+    if (path === '/api/sync') return json({ albums, photos, removed: [], cursor: String(Date.now()) })
     if (path === '/api/push/prefs') return json({ prefs })
     if (path.startsWith('/api/push/prefs/')) {
       const pref = { ...request.postDataJSON() as Omit<PushPreference, 'albumId'>, albumId: path.split('/').at(-1)! }
@@ -115,7 +114,7 @@ export async function uxFixtures(page: Page, options: UxOptions = {}) {
     if (path === '/api/push/config') return json({ publicKey: 'BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' })
     if (path === '/api/push/subscription') return route.fulfill({ status: 204 })
     if (path.startsWith('/api/albums/')) {
-      const album = { ...request.postDataJSON() as Pick<AlbumDTO, 'name' | 'timeZone' | 'createdAt'>, id: path.split('/').at(-1)!, updatedAt: Date.now(), deletedAt: null }
+      const album = { ...request.postDataJSON() as Pick<AlbumDTO, 'name' | 'timeZone'>, id: path.split('/').at(-1)!, deletedAt: null }
       const index = albums.findIndex((item) => item.id === album.id)
       if (index < 0) albums.push(album)
       else albums.splice(index, 1, album)
@@ -130,8 +129,8 @@ export async function uxFixtures(page: Page, options: UxOptions = {}) {
       const form = await new Request(request.url(), { method, headers: request.headers(), body: new Uint8Array(request.postDataBuffer()!) }).formData()
       const encoded = form.get('meta')
       if (typeof encoded !== 'string') throw new Error('Missing synthetic upload metadata')
-      const meta = JSON.parse(encoded) as Omit<PhotoDTO, 'id' | 'masterBytes' | 'thumbBytes' | 'deletedAt'>
-      const photo: PhotoDTO = { ...meta, id, masterBytes: portrait.length, thumbBytes: portrait.length, deletedAt: null }
+      const meta = JSON.parse(encoded) as Omit<PhotoDTO, 'id' | 'deletedAt'>
+      const photo: PhotoDTO = { ...meta, id, deletedAt: null }
       controls.uploads.push(id)
       if (controls.holdUploads) await new Promise<void>((resolve) => { releaseUploads = resolve })
       const replaced = photos.filter((item) => item.deletedAt === null && item.albumId === photo.albumId && item.dayKey === photo.dayKey)

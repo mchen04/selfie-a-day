@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applicationServerKey, deviceTimeZone, pushState, resyncDevice, subscribeDevice, unsubscribeDevice } from '../../../src/push/client.ts'
 import { pushEnvironment } from './environment.ts'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { localStorage.clear(); vi.unstubAllGlobals() })
 
 describe('push support and permission', () => {
   it.each(['default', 'granted', 'denied'] as const)('reports %s without asking permission', (permission) => {
@@ -57,7 +57,7 @@ describe('device subscriptions', () => {
 
   it.each(['default', 'denied'] as const)('never asks or subscribes on app start with %s permission', async (permission) => {
     const env = pushEnvironment(permission)
-    await resyncDevice()
+    await resyncDevice('synthetic')
     expect(env.notification.requestPermission).not.toHaveBeenCalled()
     expect(env.manager.subscribe).not.toHaveBeenCalled()
     expect(env.request).not.toHaveBeenCalled()
@@ -67,7 +67,7 @@ describe('device subscriptions', () => {
     const env = pushEnvironment('granted')
     const rotated = { ...env.subscription, endpoint: 'https://web.push.apple.com/rotated' } as PushSubscription
     env.setSubscription(rotated)
-    await resyncDevice()
+    await resyncDevice('synthetic')
     expect(env.notification.requestPermission).not.toHaveBeenCalled()
     expect(env.manager.subscribe).not.toHaveBeenCalled()
     expect(JSON.parse(env.request.mock.calls[0]![1]?.body as string)).toMatchObject({ endpoint: rotated.endpoint })
@@ -75,9 +75,54 @@ describe('device subscriptions', () => {
 
   it('replaces a missing subscription when permission is already granted', async () => {
     const env = pushEnvironment('granted')
-    await resyncDevice()
+    await resyncDevice('synthetic')
     expect(env.manager.subscribe).toHaveBeenCalledOnce()
     expect(env.request).toHaveBeenCalledTimes(2)
+  })
+
+  it('re-sends an unchanged subscription only after a day, or for another user, endpoint or time zone', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      const env = pushEnvironment('granted')
+      env.setSubscription(env.subscription)
+      const puts = () => env.request.mock.calls.filter(([path, init]) => path === '/api/push/subscription' && init?.method === 'PUT').length
+      await resyncDevice('synthetic')
+      await resyncDevice('synthetic')
+      expect(puts()).toBe(1)
+      await resyncDevice('other-synthetic')
+      expect(puts()).toBe(2)
+      env.setSubscription({ ...env.subscription, endpoint: 'https://web.push.apple.com/rotated' })
+      await resyncDevice('other-synthetic')
+      expect(puts()).toBe(3)
+      vi.stubGlobal('Intl', { ...Intl, DateTimeFormat: () => ({ resolvedOptions: () => ({ timeZone: 'Asia/Tokyo' }) }) })
+      await resyncDevice('other-synthetic')
+      expect(puts()).toBe(4)
+      await resyncDevice('other-synthetic')
+      expect(puts()).toBe(4)
+      vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000)
+      await resyncDevice('other-synthetic')
+      expect(puts()).toBe(5)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('retries a failed send, and always sends a new or explicitly enabled subscription', async () => {
+    const env = pushEnvironment('granted')
+    env.setSubscription(env.subscription)
+    const puts = () => env.request.mock.calls.filter(([path, init]) => path === '/api/push/subscription' && init?.method === 'PUT').length
+    env.request.mockRejectedValueOnce(new TypeError('Offline'))
+    await expect(resyncDevice('synthetic')).rejects.toThrow('Offline')
+    await resyncDevice('synthetic')
+    expect(puts()).toBe(2)
+    await subscribeDevice()
+    expect(puts()).toBe(3)
+    await resyncDevice('synthetic')
+    expect(puts()).toBe(4)
+    env.setSubscription(null)
+    await resyncDevice('synthetic')
+    expect(env.manager.subscribe).toHaveBeenCalledOnce()
+    expect(puts()).toBe(5)
+    await unsubscribeDevice()
+    expect(localStorage.getItem('sad.push.sent')).toBeNull()
   })
 
   it('removes the server subscription before unsubscribing locally', async () => {
@@ -93,7 +138,7 @@ describe('device subscriptions', () => {
     const env = pushEnvironment('granted')
     let ready!: (value: { pushManager: typeof env.manager }) => void
     Object.defineProperty(navigator.serviceWorker, 'ready', { value: new Promise((resolve) => { ready = resolve }) })
-    const sync = resyncDevice()
+    const sync = resyncDevice('synthetic')
     const logout = unsubscribeDevice()
     env.setSubscription(env.subscription)
     ready(env.registration)
@@ -113,7 +158,7 @@ describe('device subscriptions', () => {
     const env = pushEnvironment('granted')
     let activate!: (value: typeof env.registration) => void
     Object.defineProperty(navigator.serviceWorker, 'ready', { value: new Promise((resolve) => { activate = resolve }) })
-    const sync = resyncDevice()
+    const sync = resyncDevice('synthetic')
     const logout = unsubscribeDevice()
     try {
       await expect(Promise.race([logout.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 25))])).resolves.toBe(true)

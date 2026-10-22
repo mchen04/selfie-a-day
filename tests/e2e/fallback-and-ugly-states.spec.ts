@@ -44,7 +44,6 @@ test('the file camera fallback compresses and uploads a picked image', async ({ 
   await page.getByTestId('file-fallback-input').setInputFiles({ name: 'synthetic.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(bytes) })
   await expect.poll(async () => (await snapshot(page.request)).photos.length).toBe(1)
   const saved = (await snapshot(page.request)).photos[0]!
-  expect(saved.source).toBe('file')
   expect(['image/jpeg', 'image/webp']).toContain(saved.mime)
   expect(saved.width / saved.height).toBeCloseTo(.75)
 })

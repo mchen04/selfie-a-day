@@ -190,7 +190,7 @@ export async function seed(request, origin, count, image) {
     const response = await request.put(`${origin}/api/photos/${id}`, {
       maxRedirects: 0, headers: { Origin: origin, 'X-Selfie-CSRF': '1' }, multipart: {
         meta: JSON.stringify({ albumId: 'selfies', dayKey: date.toISOString().slice(0, 10), capturedAt: date.getTime(),
-          timeZone: 'UTC', tzOffsetMinutes: 0, width: 120, height: 160, mime: 'image/jpeg', mirrored: false, source: 'file', timerSeconds: 0 }),
+          width: 120, height: 160, mime: 'image/jpeg', mirrored: false, timerSeconds: 0 }),
         master: { name: 'master.jpg', mimeType: 'image/jpeg', buffer: image },
         thumb: { name: 'thumb.jpg', mimeType: 'image/jpeg', buffer: image },
       },

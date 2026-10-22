@@ -20,7 +20,7 @@ beforeEach(async () => {
   for (const name of ['0001_core.sql', '0002_push.sql']) {
     await db.exec(readFileSync(new URL(`../../migrations/${name}`, import.meta.url), 'utf8'))
   }
-  await db.exec("INSERT INTO users VALUES ('synthetic', 'synthetic', 'synthetic', 0); INSERT INTO albums (user_id, id, name, created_at, updated_at) VALUES ('synthetic', 'selfies', 'Selfies', 0, 0)")
+  await db.exec("INSERT INTO users VALUES ('synthetic', 'synthetic', 'synthetic'); INSERT INTO albums (user_id, id, name, name_key, updated_at) VALUES ('synthetic', 'selfies', 'Selfies', 'selfies', 0)")
   const pair = createECDH('prime256v1')
   pair.generateKeys()
   const privateKey = Buffer.alloc(32)

@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, SCHEMA_VERSION, type Settings } from '../core/types.ts'
+import { DEFAULT_SETTINGS, type Settings } from '../core/types.ts'
 import { readValue, writeValue, userKey } from './local.ts'
 
 const SETTINGS_KEY = 'settings'
@@ -49,10 +49,9 @@ export function coerceSettings(stored: unknown): Settings {
     captureLongEdge: num('captureLongEdge', 480, 4096, DEFAULT_SETTINGS.captureLongEdge),
     ghostEnabled: bool('ghostEnabled', DEFAULT_SETTINGS.ghostEnabled),
     activeAlbumId: string('activeAlbumId', DEFAULT_SETTINGS.activeAlbumId),
-    schema: SCHEMA_VERSION,
   }
 }
 
 export async function saveSettings(settings: Settings, userId = 'device'): Promise<void> {
-  await writeValue(userKey(userId, SETTINGS_KEY), { ...settings, schema: SCHEMA_VERSION })
+  await writeValue(userKey(userId, SETTINGS_KEY), settings)
 }

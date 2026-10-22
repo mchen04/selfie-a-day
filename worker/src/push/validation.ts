@@ -15,16 +15,6 @@ export function validEndpoint(endpoint: unknown, allowInsecure: string): endpoin
   }
 }
 
-export function validTimeZone(zone: unknown): zone is string {
-  if (typeof zone !== 'string' || zone.length > 100 || /^[+-]/.test(zone)) return false
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: zone }).format(0)
-    return true
-  } catch {
-    return false
-  }
-}
-
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }

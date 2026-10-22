@@ -462,7 +462,7 @@ export async function signOut(day: Day, device: Device): Promise<void> {
   const state = await device.storage() as { indexedDB: Record<string, { count: number; keys?: string[] }>; localStorage: Array<{ key: string }> }
   const userScoped = (state.indexedDB.kv?.keys ?? []).filter((key) => key === 'user' || key.startsWith('user:'))
   day.check(`accounts: ${device.name} logs out and keeps no user data`, 'accounts',
-    userScoped.length === 0 && (state.indexedDB.outbox?.count ?? 0) === 0 && (state.indexedDB.ghosts?.count ?? 0) === 0 && !state.localStorage.some((item) => item.key.startsWith('sad.camera.')),
+    userScoped.length === 0 && (state.indexedDB.outbox?.count ?? 0) === 0 && (state.indexedDB.ghosts?.count ?? 0) === 0 && !state.localStorage.some((item) => item.key.startsWith('sad.')),
     { kvKeys: state.indexedDB.kv?.keys ?? [], outbox: state.indexedDB.outbox?.count ?? 0, ghosts: state.indexedDB.ghosts?.count ?? 0, localStorage: state.localStorage.map((item) => item.key), cookies: await device.cookies() })
 }
 

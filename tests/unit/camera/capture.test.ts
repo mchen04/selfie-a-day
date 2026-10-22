@@ -83,7 +83,6 @@ describe('capture timer metadata and pixels', () => {
     const result = await captureFromFile(file, { longEdge: 960, mirrored: true })
     expect(result.timerSeconds).toBe(0)
     expect(result.meta.timerSeconds).toBe(0)
-    expect(result.meta.source).toBe('file')
     expect(result.meta.mirrored).toBe(true)
     expect(result.master.width / result.master.height).toBe(0.75)
     expect(release).toHaveBeenCalledTimes(1)

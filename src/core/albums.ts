@@ -1,6 +1,6 @@
 import { isValidTimeZone } from './day.ts'
 import { newAlbumId } from './id.ts'
-import { DEFAULT_ALBUM_ID, SCHEMA_VERSION, type Album } from './types.ts'
+import { DEFAULT_ALBUM_ID, type Album } from './types.ts'
 
 export const DEFAULT_ALBUM_NAME = 'Selfies'
 export const MAX_ALBUM_NAME_LENGTH = 40
@@ -10,10 +10,7 @@ export function defaultAlbum(): Album {
     id: DEFAULT_ALBUM_ID,
     name: DEFAULT_ALBUM_NAME,
     timeZone: null,
-    createdAt: 0,
-    updatedAt: 0,
     deletedAt: null,
-    schema: SCHEMA_VERSION,
   }
 }
 
@@ -34,9 +31,6 @@ export function makeAlbum(name: string, timeZone: string | null = null, now: num
     id: newAlbumId(now),
     name: cleanAlbumName(name),
     timeZone,
-    createdAt: now,
-    updatedAt: now,
     deletedAt: null,
-    schema: SCHEMA_VERSION,
   }
 }

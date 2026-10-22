@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SETTINGS, SCHEMA_VERSION } from '../../src/core/types.ts'
+import { DEFAULT_SETTINGS } from '../../src/core/types.ts'
 import { coerceSettings, loadSettings, saveSettings } from '../../src/storage/settings.ts'
 
 describe('coerceSettings', () => {
@@ -17,9 +17,8 @@ describe('coerceSettings', () => {
       captureLongEdge: 960,
       ghostEnabled: false,
       activeAlbumId: 'album-0000000001abcdefghij',
-      schema: 1,
     }
-    expect(coerceSettings(stored)).toEqual({ ...stored, schema: SCHEMA_VERSION })
+    expect(coerceSettings({ ...stored, schema: 1 })).toEqual(stored)
   })
 
   it('clamps out-of-range numbers rather than trusting them', () => {

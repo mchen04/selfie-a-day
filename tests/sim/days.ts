@@ -581,7 +581,7 @@ async function day9(day: Day): Promise<void> {
     day.check('accounts: confirming removes this phone\'s push subscription and all user-scoped local data', 'accounts',
       dialogs.length === 2 && !serverSubscriptions(owner()).some((item) => item.endpoint === PHONE_ENDPOINT) && !phonePush.read().subscribed &&
       (state.indexedDB.kv?.keys ?? []).every((key) => key !== 'user' && !key.startsWith('user:')) && (state.indexedDB.outbox?.count ?? 0) === 0 &&
-      (state.indexedDB.ghosts?.count ?? 0) === 0 && !state.localStorage.some((item) => item.key.startsWith('sad.camera.')) && !serverPhotos(owner()).some((photo) => photo.id === shot.id),
+      (state.indexedDB.ghosts?.count ?? 0) === 0 && !state.localStorage.some((item) => item.key.startsWith('sad.')) && !serverPhotos(owner()).some((photo) => photo.id === shot.id),
       { dialogs: dialogs.length, deleteSubscription: removed.map((record) => record.status), kvKeys: state.indexedDB.kv?.keys ?? [], outbox: state.indexedDB.outbox?.count ?? 0,
         ghosts: state.indexedDB.ghosts?.count ?? 0, localStorage: state.localStorage.map((item) => item.key), cookies: await phone.cookies() })
     await phone.screenshot('signed-out')
@@ -657,8 +657,8 @@ async function day10(day: Day): Promise<void> {
       if (days.has(dayKey)) continue
       const id = digest(`seed ${dayKey}`).toString('hex').slice(0, 20)
       const response = await day.call(api, 'PUT', `/api/photos/${id}`, `seed the Selfies photo for ${dayKey}`, { multipart: {
-        meta: JSON.stringify({ albumId: SELFIES, dayKey, capturedAt: at(dayKey, '09:00'), timeZone: 'America/Los_Angeles', tzOffsetMinutes: -420,
-          width: 120, height: 160, mime: 'image/jpeg', mirrored: false, source: 'file', timerSeconds: 3 }),
+        meta: JSON.stringify({ albumId: SELFIES, dayKey, capturedAt: at(dayKey, '09:00'),
+          width: 120, height: 160, mime: 'image/jpeg', mirrored: false, timerSeconds: 3 }),
         master: { name: 'master', mimeType: 'image/jpeg', buffer: bytes },
         thumb: { name: 'thumb', mimeType: 'image/jpeg', buffer: bytes },
       } })

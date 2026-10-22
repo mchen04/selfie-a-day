@@ -123,14 +123,11 @@ export interface StoredPhotoInfo {
   albumId?: string
   dayKey: string
   capturedAt: number
-  timeZone?: string | null
   deletedAt?: number | null
   width: number
   height: number
   mime: string
   mirrored: boolean
-  masterBytes: number
-  source: 'camera' | 'file'
 }
 
 export async function listStoredPhotos(

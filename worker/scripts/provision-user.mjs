@@ -35,7 +35,7 @@ try {
   const salt = randomBytes(16)
   const hash = pbkdf2Sync(password, salt, 100000, 32, 'sha256')
   const stored = `pbkdf2-sha256$100000$${salt.toString('base64url')}$${hash.toString('base64url')}`
-  stdout.write(`INSERT INTO users (id, username, password_hash, created_at) VALUES ('${randomUUID()}', '${username}', '${stored}', ${Date.now()}) ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash;\n`)
+  stdout.write(`INSERT INTO users (id, username, password_hash) VALUES ('${randomUUID()}', '${username}', '${stored}') ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash;\n`)
 } catch (error) {
   stderr.write(`${error instanceof Error ? error.message : 'Provisioning failed'}\n`)
   process.exitCode = 1

@@ -50,27 +50,25 @@ export async function authenticate(request: Request, env: Env, now: number, expe
   const token = requestToken(request, env)
   if (!token) return null
   const id = await tokenHash(token)
-  const row = await env.DB.prepare(`SELECT u.id, u.username, s.expires_at, s.last_seen_at FROM sessions s
+  const row = await env.DB.prepare(`SELECT u.id, u.username, s.expires_at FROM sessions s
     JOIN users u ON u.id = s.user_id WHERE s.id = ? AND s.expires_at > ?`).bind(id, now)
-    .first<User & { expires_at: number; last_seen_at: number }>()
+    .first<User & { expires_at: number }>()
   if (!row) return null
   if (expectedUserId !== null && expectedUserId !== row.id) throw new HttpError(409, 'user_mismatch')
   const session: Session = { user: { id: row.id, username: row.username }, id }
+  // The only write a signed-in read makes: renewal, once the session is under 45 days.
   if (row.expires_at - now < 45 * DAY) {
-    await env.DB.prepare('UPDATE sessions SET expires_at = ?, last_seen_at = ? WHERE id = ? AND user_id = ?')
-      .bind(now + SESSION_LIFETIME, now, id, row.id).run()
+    await env.DB.prepare('UPDATE sessions SET expires_at = ? WHERE id = ? AND user_id = ?')
+      .bind(now + SESSION_LIFETIME, id, row.id).run()
     session.cookie = sessionCookie(env, token)
-  } else if (row.last_seen_at <= now - 3_600_000) {
-    await env.DB.prepare('UPDATE sessions SET last_seen_at = ? WHERE id = ? AND user_id = ? AND last_seen_at <= ?')
-      .bind(now, id, row.id, now - 3_600_000).run()
   }
   return session
 }
 
 async function createSession(env: Env, userId: string, now: number): Promise<string> {
   const token = base64url(crypto.getRandomValues(new Uint8Array(32)))
-  await env.DB.prepare('INSERT INTO sessions (id, user_id, created_at, expires_at, last_seen_at) VALUES (?, ?, ?, ?, ?)')
-    .bind(await tokenHash(token), userId, now, now + SESSION_LIFETIME, now).run()
+  await env.DB.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)')
+    .bind(await tokenHash(token), userId, now + SESSION_LIFETIME).run()
   return sessionCookie(env, token)
 }
 
@@ -112,8 +110,8 @@ async function signup(request: Request, env: Env, now: number): Promise<Response
   const passwordHash = await hashPassword(body.password)
   const user = { id: crypto.randomUUID(), username }
   try {
-    await env.DB.prepare('INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)')
-      .bind(user.id, username, passwordHash, now).run()
+    await env.DB.prepare('INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)')
+      .bind(user.id, username, passwordHash).run()
   } catch (error) {
     if (String(error).includes('UNIQUE constraint failed: users.username')) throw new HttpError(409, 'username_taken')
     throw error

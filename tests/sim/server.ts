@@ -34,7 +34,7 @@ export const serverPhotos = (user: string) => d1<ServerPhoto>(`SELECT id, album_
   timer_seconds AS timerSeconds, deleted_at AS deletedAt, purged_at AS purgedAt FROM photos WHERE user_id = ? ORDER BY captured_at, id`, user)
 
 export const serverAlbums = (user: string) => d1<ServerAlbum>(`SELECT id, name, time_zone AS timeZone FROM albums
-  WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at, id`, user)
+  WHERE user_id = ? AND deleted_at IS NULL ORDER BY id`, user)
 
 export const serverSubscriptions = (user: string) => d1<{ endpoint: string; timeZone: string }>(
   'SELECT endpoint, time_zone AS timeZone FROM push_subscriptions WHERE user_id = ? ORDER BY endpoint', user)
