@@ -22,7 +22,7 @@
     "ALLOWED_ORIGINS": "https://selfie-a-day.vercel.app",
     "COOKIE_SECURE": "true",
     "PUSH_ALLOW_INSECURE_ENDPOINTS": "false",
-    "VAPID_PUBLIC_KEY": "",
+    "VAPID_PUBLIC_KEY": "BPHp3K83ofnyI3Y5cJNp8DkzktqZauSBbrSDfj23lwqnn6h9zoY2U0xpRT6KXyRX9FNfShVx6mjZsua7hHAFEIo",
     "VAPID_SUBJECT": "https://selfie-a-day.vercel.app"
   },
   "triggers": {

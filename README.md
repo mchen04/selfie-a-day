@@ -116,11 +116,15 @@ Performance measurement uses a separate harness: [scripts/perf/README.md](script
 
 The Worker (`worker/wrangler.jsonc`, name `selfie-a-day-api`) serves `/api`; Vercel serves the app and rewrites `/api` to it.
 
+The config also defines a `local` environment, so `wrangler deploy` and `wrangler secret put` warn without a target; `--env=""` selects the top-level production config.
+
 1. Apply migrations: `npx wrangler d1 migrations apply DB --remote --config worker/wrangler.jsonc`.
-2. Set `VAPID_PUBLIC_KEY` in `worker/wrangler.jsonc` and the matching private key with `npx wrangler secret put VAPID_PRIVATE_KEY --config worker/wrangler.jsonc`.
+2. `VAPID_PUBLIC_KEY` in `worker/wrangler.jsonc` is the production push public key.
+   Store the matching private key with `npx wrangler secret put VAPID_PRIVATE_KEY --config worker/wrangler.jsonc --env=""`.
    The key format is the one `ensureLocalVapid` in `worker/scripts/local-api.mjs` writes: base64url P-256 public point and 32-byte private scalar.
-3. Deploy the Worker: `npx wrangler deploy --config worker/wrangler.jsonc`.
-4. Replace `WORKERS_SUBDOMAIN` in `vercel.json` with the account's workers.dev subdomain, then deploy the app with Vercel.
+   Replacing the pair strands existing subscriptions: the app reuses a device's subscription, so each device must sign out in Settings, which removes it, before reminders reach it again.
+3. Deploy the Worker: `npx wrangler deploy --config worker/wrangler.jsonc --env=""`.
+4. `vercel.json` rewrites `/api` to `selfie-a-day-api.michaelluochen1.workers.dev`; deploy the app with Vercel.
 5. Create an account in the app, or provision one: `node worker/scripts/provision-user.mjs <username>` reads a password from stdin and prints the SQL for `wrangler d1 execute`.
 
 Sessions use the `__Host-` cookie prefix, so production must be HTTPS on one origin.

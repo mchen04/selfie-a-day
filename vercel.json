@@ -6,7 +6,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://selfie-a-day-api.WORKERS_SUBDOMAIN.workers.dev/api/:path*"
+      "destination": "https://selfie-a-day-api.michaelluochen1.workers.dev/api/:path*"
     },
     {
       "source": "/((?!api/).*)",
