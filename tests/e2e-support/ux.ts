@@ -165,7 +165,7 @@ export async function safeMetrics(page: Page) {
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]')
     const root = dialog ?? document.body
     const selectors = dialog ? ['.sheet'] : ['.topbar', '.capture__controls', '.photo__nav', '.playback__controls', '.account']
-    return selectors.flatMap((selector) => [...Array.from(root.querySelectorAll<HTMLElement>(selector)), ...(root.matches(selector) ? [root] : [])].map((element) => {
+    const bars = selectors.flatMap((selector) => [...Array.from(root.querySelectorAll<HTMLElement>(selector)), ...(root.matches(selector) ? [root] : [])].map((element) => {
       const style = getComputedStyle(element)
       const box = element.getBoundingClientRect()
       const children = Array.from(element.children).map((child) => child.getBoundingClientRect()).filter((rect) => rect.height > 0)
@@ -174,11 +174,35 @@ export async function safeMetrics(page: Page) {
         contentTop: Math.min(...children.map((rect) => rect.top)), contentBottom: Math.max(...children.map((rect) => rect.bottom)),
         contentLeft: Math.min(...children.map((rect) => rect.left)), contentRight: Math.max(...children.map((rect) => rect.right)), height: innerHeight, width: innerWidth }
     }))
+    // A scroller that runs to the bottom edge must end its content above the
+    // bottom inset once scrolled to its end. Measure where that end would sit
+    // from the current position and the distance still left to scroll.
+    const scrollers = Array.from(root.querySelectorAll<HTMLElement>('*')).filter((element) => {
+      const style = getComputedStyle(element)
+      return ['auto', 'scroll'].includes(style.overflowY) && element.clientHeight > 0 && element.getBoundingClientRect().bottom >= innerHeight - 1
+    }).map((element) => {
+      const style = getComputedStyle(element)
+      const reversed = style.display.endsWith('flex') && style.flexDirection === 'column-reverse'
+      const remaining = reversed ? -element.scrollTop : element.scrollHeight - element.clientHeight - element.scrollTop
+      // Sticky and fixed content (a month header) does not move with the scroll.
+      const pinned = (item: HTMLElement) => {
+        for (let current: HTMLElement | null = item; current && current !== element; current = current.parentElement) {
+          if (['fixed', 'sticky'].includes(getComputedStyle(current).position)) return true
+        }
+        return false
+      }
+      const content = Array.from(element.querySelectorAll<HTMLElement>('img, video, button, a[href], input, select, textarea, [role="switch"], p, span, h1, h2, h3, li'))
+        .filter((item) => item.getClientRects().length > 0 && !pinned(item))
+      const contentBottom = Math.max(...content.map((item) => item.getBoundingClientRect().bottom)) - remaining
+      return { element: element.getAttribute('data-testid') ?? (element.id ? `#${element.id}` : `${element.tagName.toLowerCase()}.${element.getAttribute('class') ?? ''}`),
+        contentBottomAtEnd: contentBottom, height: innerHeight }
+    }).filter((scroller) => Number.isFinite(scroller.contentBottomAtEnd))
+    return { bars, scrollers }
   })
 }
 
 export function safeAreaCheck(insets: Insets, after: Awaited<ReturnType<typeof safeMetrics>>): UxCheck {
-  const details = after.map((bar) => {
+  const details = after.bars.map((bar) => {
     const top = bar.selector === '.topbar' || bar.selector === '.account'
     const bottom = bar.selector !== '.topbar' && bar.selector !== '.account'
     return { ...bar,
@@ -188,8 +212,9 @@ export function safeAreaCheck(insets: Insets, after: Awaited<ReturnType<typeof s
         && bar.contentLeft >= bar.left + bar.paddingLeft - 1 && bar.contentRight <= bar.right - bar.paddingRight + 1,
     }
   })
-  return { check: 'safe-area-simulation', pass: details.length > 0 && details.every((bar) => bar.pass),
-    details: { method: 'Override --safe-top/bottom/left/right in CSS and require bar content inside the insets and the bar side padding; this is not a physical device check.', insets, bars: details } }
+  const scrollers = after.scrollers.map((scroller) => ({ ...scroller, pass: scroller.contentBottomAtEnd <= scroller.height - insets.bottom + 1 }))
+  return { check: 'safe-area-simulation', pass: details.length > 0 && details.every((bar) => bar.pass) && scrollers.every((scroller) => scroller.pass),
+    details: { method: 'Override --safe-top/bottom/left/right in CSS and require bar content inside the insets and the bar side padding, and the end of a bottom-reaching scroller above the bottom inset; this is not a physical device check.', insets, bars: details, scrollers } }
 }
 
 export async function captureUx(page: Page, testInfo: TestInfo, state: string, primary?: string | null, extra: Record<string, unknown> = {}) {
@@ -198,11 +223,23 @@ export async function captureUx(page: Page, testInfo: TestInfo, state: string, p
   const width = page.viewportSize()?.width ?? 1280
   const inset = simulatedInsets(width)
   for (const simulated of width <= 430 ? [false, true] : [false]) {
+    // A list scrolled to its end stays at its end on a device, where the insets
+    // apply from the start; injected insets push it up, so it is scrolled back.
+    const atEnd = simulated && await page.evaluate(() => {
+      const scrollers = Array.from(document.querySelectorAll<HTMLElement>('*')).filter((element) => ['auto', 'scroll'].includes(getComputedStyle(element).overflowY)
+        && element.scrollTop > 0 && element.scrollHeight - element.clientHeight - element.scrollTop <= 1)
+      Object.assign(window, { uxAtEnd: scrollers })
+      return scrollers.length > 0
+    })
     const insets = simulated ? await page.addStyleTag({ content: `:root { --safe-top: ${inset.top}px !important; --safe-bottom: ${inset.bottom}px !important; --safe-left: ${inset.left}px !important; --safe-right: ${inset.right}px !important; }` }) : null
     // The screenshot comes first: WebKit applies injected custom properties at the
     // next rendering update, and the capture forces one (rAF may be paused by page.clock).
     const path = resolve(directory, `${state}${simulated ? '-insets' : ''}.png`)
     await page.screenshot({ path, animations: 'disabled' })
+    if (atEnd) {
+      await page.evaluate(() => { for (const element of (window as unknown as { uxAtEnd: HTMLElement[] }).uxAtEnd) element.scrollTop = element.scrollHeight })
+      await page.screenshot({ path, animations: 'disabled' })
+    }
     const checks = await auditUx(page, primary)
     if (simulated) checks.push(safeAreaCheck(inset, await safeMetrics(page)))
     await testInfo.attach(`${state}${simulated ? '-insets' : ''}`, { path, contentType: 'image/png' })

@@ -103,6 +103,8 @@ export function useNearViewport(
     const element = ref.current
     if (!element || seen) return
 
+    // rootMargin only grows the root, and a scroller between the element and the
+    // viewport clips first, so the margin must be measured against the scroller.
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
@@ -110,7 +112,7 @@ export function useNearViewport(
           observer.disconnect()
         }
       },
-      { rootMargin },
+      { root: element.closest('.screen__scroll'), rootMargin },
     )
     observer.observe(element)
     return () => observer.disconnect()

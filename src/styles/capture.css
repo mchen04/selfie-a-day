@@ -678,6 +678,11 @@
   padding: 4px calc(var(--safe-right) + 14px) 18px calc(var(--safe-left) + 14px);
 }
 
+/* The timeline has no bottom bar, so the last month clears the home indicator itself. */
+.month:last-child {
+  padding-bottom: calc(var(--safe-bottom) + 18px);
+}
+
 .month__label {
   position: sticky;
   top: 0;

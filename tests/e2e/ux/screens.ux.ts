@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { openUx, saveUxPhoto, type ReminderMode } from '../../e2e-support/ux-fixtures.ts'
 import { captureUx } from '../../e2e-support/ux.ts'
@@ -50,15 +50,55 @@ test('capture: camera denied', async ({ page }, info) => {
   await captureUx(page, info, 'capture-camera-denied', '[data-testid="shutter"]')
 })
 
+// Cells load their thumbnails as they near the timeline's scroller. Count the
+// cells inside it (the scroller clips what sits under the topbar) and the cells
+// up to 400px below it, which the app preloads so a scroll does not show grey.
+function thumbnailCounts(page: Page, scrollBy = 0) {
+  return page.evaluate((scrollBy) => {
+    const element = document.querySelector('.screen__scroll')!
+    // Scrolling and counting in one task samples the first frame after the swipe.
+    if (scrollBy) element.scrollBy({ top: scrollBy })
+    const scroller = element.getBoundingClientRect()
+    const cells = Array.from(document.querySelectorAll('[data-testid="timeline-cell"]')).map((cell) => {
+      const box = cell.getBoundingClientRect()
+      const image = cell.querySelector('img')
+      return { top: box.top, bottom: box.bottom, loaded: !!image && image.complete && image.naturalWidth > 0 }
+    })
+    const visible = cells.filter((cell) => cell.bottom > scroller.top && cell.top < scroller.bottom)
+    const ahead = cells.filter((cell) => cell.top >= scroller.bottom && cell.top < scroller.bottom + 400)
+    return { visible: visible.length, loaded: visible.filter((cell) => cell.loaded).length, ahead: ahead.length, aheadLoaded: ahead.filter((cell) => cell.loaded).length }
+  }, scrollBy)
+}
+
+// Screenshots wait for every visible thumbnail; the preload gets a short grace
+// period and is then checked softly, so a miss is reported with the evidence.
+async function settledThumbnails(page: Page) {
+  await expect.poll(async () => { const counts = await thumbnailCounts(page); return counts.visible > 0 && counts.loaded === counts.visible }).toBe(true)
+  for (let tries = 0; tries < 40; tries++) {
+    const counts = await thumbnailCounts(page)
+    if (counts.aheadLoaded === counts.ahead) break
+    await page.waitForTimeout(50)
+  }
+  const counts = await thumbnailCounts(page)
+  expect.soft(counts.aheadLoaded, `thumbnails within 400px below the timeline view are preloaded: ${JSON.stringify(counts)}`).toBe(counts.ahead)
+  return counts
+}
+
 for (const count of [0, 60]) {
   test(`timeline: ${count} photos`, async ({ page }, info) => {
     await openUx(page, { photos: count }, '/timeline')
-    if (count === 0) await expect(page.getByTestId('timeline-empty')).toBeVisible()
-    await captureUx(page, info, `timeline-${count}`, count ? undefined : '[data-testid="timeline-empty"] .btn')
-    if (count) {
-      await page.getByTestId('timeline-cell').last().scrollIntoViewIfNeeded()
-      await captureUx(page, info, 'timeline-60-end', null)
+    if (count === 0) {
+      await expect(page.getByTestId('timeline-empty')).toBeVisible()
+      await captureUx(page, info, 'timeline-0', '[data-testid="timeline-empty"] .btn')
+      return
     }
+    await captureUx(page, info, 'timeline-60', undefined, { thumbnails: await settledThumbnails(page) })
+    // A short swipe (300px) only brings in cells that were already within the
+    // preload margin, so none of them should be grey at the first frame.
+    const swipe = await thumbnailCounts(page, 300)
+    expect.soft(swipe.loaded, `grey cells in view right after a 300px swipe: ${JSON.stringify(swipe)}`).toBe(swipe.visible)
+    await page.getByTestId('timeline-cell').last().scrollIntoViewIfNeeded()
+    await captureUx(page, info, 'timeline-60-end', null, { thumbnails: await settledThumbnails(page), swipe })
   })
 }
 
