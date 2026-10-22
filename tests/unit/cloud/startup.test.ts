@@ -38,10 +38,10 @@ async function settle(update: () => void) {
   await act(async () => { update(); await Promise.resolve() })
 }
 
-async function waitFor(check: () => void) {
+async function waitFor(check: () => void | Promise<void>) {
   await vi.waitFor(async () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)) })
-    check()
+    await check()
   }, { timeout: 500 })
 }
 
@@ -253,6 +253,7 @@ describe('reconnecting', () => {
     remote.mocked.mockImplementation((url, init) => url === '/api/auth/me' ? Promise.resolve(reply({ user: owner })) : answer(url, init))
     await settle(() => { window.dispatchEvent(new Event('online')) })
     await waitFor(() => expect(remote.uploadIds).toEqual([offline.meta.id]))
-    expect((await listPending(owner.id)).map((entry) => entry.meta.id)).toEqual([rejected.meta.id])
+    // The mock records the PUT on arrival; the engine drops the entry after the response.
+    await waitFor(async () => expect((await listPending(owner.id)).map((entry) => entry.meta.id)).toEqual([rejected.meta.id]))
   })
 })

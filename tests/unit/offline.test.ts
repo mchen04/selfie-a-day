@@ -26,7 +26,7 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); document.head.innerHTML = '' })
 
 describe('offline reopen readiness', () => {
-  it('accepts an activated precache when onboarding reload leaves the current page uncontrolled', async () => {
+  it('accepts an activated precache while the current page is not yet controlled', async () => {
     controller = null
     expect(await offlineReadiness()).toBe('ready')
   })
