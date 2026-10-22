@@ -264,8 +264,12 @@ export class Day implements Journal {
     this.check('invariant: no horizontal scroll at 390 px', 'invariants', wide.length === 0 && views.some((view) => view.width === 390), { screens: views.filter((view) => view.width === 390).length, wide })
 
     const isAsset = (record: RequestRecord) => ['document', 'script', 'stylesheet'].includes(record.resourceType)
-    const badAssets = this.requests.filter((record) => isAsset(record) && (record.status === null ? record.failure !== 'net::ERR_ABORTED' : record.status >= 400))
-    this.check('invariant: no failed document/script/style request', 'invariants', badAssets.length === 0, { assets: this.requests.filter(isAsset).length, failed: badAssets.slice(0, 10) })
+    // A finished asset whose response Playwright could not read within 5 s did
+    // not fail (seen once, on Chromium's service-worker script fetch); it is
+    // listed as unread. API requests get no such allowance.
+    const unread = (record: RequestRecord) => record.status === null && record.failure === null
+    const badAssets = this.requests.filter((record) => isAsset(record) && !unread(record) && (record.status === null ? record.failure !== 'net::ERR_ABORTED' : record.status >= 400))
+    this.check('invariant: no failed document/script/style request', 'invariants', badAssets.length === 0, { assets: this.requests.filter(isAsset).length, failed: badAssets.slice(0, 10), unread: this.requests.filter((record) => isAsset(record) && unread(record)) })
 
     const errors = this.consoleLog.filter((record) => !record.network && (record.type === 'error' || record.type === 'pageerror'))
     this.check('invariant: no console errors', 'invariants', errors.length === 0, errors.slice(0, 10))

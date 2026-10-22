@@ -35,6 +35,10 @@ function deliveryError(error: unknown, env: PushEnv, subscription: Subscription,
 
 export async function runPushScheduler(env: PushEnv, now: number): Promise<{ sent: number; skipped: number; removed: number; failed: number }> {
   const result = { sent: 0, skipped: 0, removed: 0, failed: 0 }
+  // The log is read only for a zone's today, which is never before UTC's
+  // yesterday; older rows are dead and go in bounded batches.
+  await env.DB.prepare('DELETE FROM notification_log WHERE rowid IN (SELECT rowid FROM notification_log WHERE day_key < ? LIMIT 500)')
+    .bind(new Date(now - 2 * 86400000).toISOString().slice(0, 10)).run()
   if (!env.VAPID_PRIVATE_KEY || !env.VAPID_PUBLIC_KEY) return result
   const prefs = await env.DB.prepare(`SELECT p.user_id, p.album_id, p.time, a.name,
     coalesce(a.time_zone, (SELECT s.time_zone FROM push_subscriptions s WHERE s.user_id = p.user_id

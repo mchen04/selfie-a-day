@@ -118,11 +118,28 @@ function methodAfter(source, end) {
   return method ? method[1] : 'batch'
 }
 
+/** Where a function body ends: its closing brace, or the end of an expression body's last line. */
+function scopeEnd(source, start, block) {
+  let depth = 0
+  for (let index = start; index < source.length; index++) {
+    const char = source[index]
+    if ('({['.includes(char)) depth++
+    else if (')}]'.includes(char) && --depth < 0) return index
+    if (depth === 0 && (block ? char === '}' : char === '\n' && index > start)) return index
+  }
+  return source.length
+}
+
+/** The innermost named function whose body contains `index`. */
 function enclosingFunction(source, index) {
-  const before = source.slice(0, index)
-  const names = [...before.matchAll(/(?:function\s+(\w+)|const\s+(\w+)\s*=\s*(?:async\s*)?\([^()]*\)\s*=>)/g)]
-  const last = names.at(-1)
-  return last ? (last[1] ?? last[2]) : '?'
+  let name = '?'
+  for (const match of source.slice(0, index).matchAll(/(?:function\s+(\w+)|const\s+(\w+)\s*=\s*(?:async\s*)?\([^()]*\)\s*=>)/g)) {
+    const header = source.slice(match.index, source.indexOf('\n', match.index)).trimEnd()
+    const block = header.endsWith('{')
+    const start = block ? match.index + header.length - 1 : match.index + match[0].length
+    if (scopeEnd(source, start, block) > index) name = match[1] ?? match[2]
+  }
+  return name
 }
 
 export function statements() {

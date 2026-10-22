@@ -10,6 +10,8 @@ describe('data-flow audit', () => {
 
   it('maps every statement to its requests and flags nothing unexplained', () => {
     expect(result.statements.filter((item) => item.caller === 'UNMAPPED').map((item) => item.where)).toEqual([])
+    // A statement after an inner arrow function belongs to the outer function.
+    expect(result.statements.find((item) => item.sql.includes('password_hash FROM users'))?.fn).toBe('login')
     expect(result.statements.flatMap((item) => item.flags.filter((flag) => !kept(flag) && flag !== 'rows grow with data').map((flag) => `${item.where}: ${flag}`))).toEqual([])
   })
 

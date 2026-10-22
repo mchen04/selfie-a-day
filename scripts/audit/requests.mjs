@@ -18,7 +18,8 @@ import { pathToFileURL } from 'node:url'
  * header size), which is how they are told apart from network traffic.
  */
 export function served(record) {
-  if (record.status === null) return 'failed'
+  // No status and no failure: the request finished but Playwright could not read its response in time.
+  if (record.status === null) return record.failure === null ? 'network' : 'failed'
   if (record.fromServiceWorker) return 'service worker'
   if (typeof record.responseBodyBytes === 'number' && record.responseBodyBytes < 0) return 'http cache'
   return 'network'
@@ -226,9 +227,9 @@ export function report(simulation, { compare = null, perf = [] } = {}) {
       table(['Endpoint', 'Before', 'After', 'Δ', 'Bytes before', 'Bytes after', 'Δ bytes'], compareRows(simulation.endpoints, compare.endpoints)), '',
       table(['Flow', 'Before', 'After', 'Δ', 'Bytes before', 'Bytes after', 'Δ bytes'], compareRows(simulation.flows, compare.flows)), '')
   }
-  lines.push('## Device storage per day (count / bytes)', '',
+  lines.push(`## Device storage per day (count / bytes), ${(compare ?? simulation).dir}`, '',
     table(['Snapshot', 'Cookies', 'IndexedDB kv', 'outbox', 'ghosts', 'localStorage', 'Cache Storage entries'], deviceRows(compare ?? simulation)), '',
-    '## Server storage per day (owner photos active/trashed/purged)', '',
+    `## Server storage per day (owner photos active/trashed/purged), ${(compare ?? simulation).dir}`, '',
     table(['Day', 'users', 'sessions', 'albums', 'photos', 'push_subscriptions', 'push_prefs', 'notification_log', 'auth_attempts', 'photo_uploads', 'R2 objects / bytes'],
       serverRows(compare ?? simulation)), '')
   for (const file of perf) lines.push(perfSection(file), '')

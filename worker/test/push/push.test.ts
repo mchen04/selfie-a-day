@@ -185,6 +185,15 @@ describe('scheduler and Web Push encryption', () => {
     expect((await runPushScheduler(fixture.env, at('2026-07-01T23:05:00Z'))).sent).toBe(1)
     expect(await fixture.env.DB.prepare('SELECT day_key FROM notification_log').first()).toEqual({ day_key: '2026-07-02' })
   })
+  it('drops notification log days no zone can still be on', async () => {
+    for (const day of ['2026-06-28', '2026-06-29', '2026-06-30', '2026-07-01']) {
+      await fixture.env.DB.prepare("INSERT INTO notification_log (user_id, album_id, event, day_key, sent_at) VALUES ('alice', 'selfies', 'reminder', ?, 1)").bind(day).run()
+    }
+    await runPushScheduler(fixture.env, at('2026-07-01T00:30:00Z'))
+    expect((await fixture.env.DB.prepare('SELECT day_key FROM notification_log ORDER BY day_key').all()).results)
+      .toEqual([{ day_key: '2026-06-29' }, { day_key: '2026-06-30' }, { day_key: '2026-07-01' }])
+  })
+
   it('sends an independently decryptable reminder at the local time, never before it', async () => {
     await subscribe()
     await pref('09:00', 'America/Los_Angeles')
