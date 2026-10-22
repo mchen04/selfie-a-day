@@ -68,6 +68,7 @@ Bytes are network headers plus bodies as Playwright reports them; it cannot see 
 | All | 665 → 573 | 2,130 → 2,044 kB |
 
 Sign-in grows because faster syncs let ghost downloads finish inside the sign-in step: 16 → 27 master downloads there, 23 → 15 in second-device sync.
+That split also moves from run to run: 7 requests and 49 kB between the 9a26bab and 4752155 runs, whose endpoint counts are identical.
 Master downloads total 207 in both runs. Each is a ghost, a timelapse frame or a ZIP entry; repeat views come from the HTTP cache.
 
 | Endpoint | Requests before → after | Bytes before → after |

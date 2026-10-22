@@ -92,7 +92,8 @@ SELFIE_PUSH_TEST_MODE=sqlite npx vitest run --config worker/vitest.config.ts wor
 That subset checks SQL, encryption and scheduling with SQLite and an in-memory receiver.
 It does not replace Miniflare or browser verification.
 
-`test:e2e` and `sim` build the app first and start their own Worker with fresh D1/R2 state and VAPID keys.
+`test:e2e` and `sim` build the app first and start their own Worker with fresh D1/R2 state.
+The e2e Worker gets new VAPID keys; the sim derives its pair from a fixed label so every run is the same story.
 Timelapse export checks need `ffprobe` from FFmpeg.
 `production.spec.ts` checks headers and CSP against a deploy; it skips without an HTTPS `E2E_BASE_URL`.
 `vite preview` sends no CSP; only `vercel.json` does.
